@@ -1,0 +1,17 @@
+--- linux-orig/arch/arm/mach-omap2/devices.c	2012-09-21 09:52:48.631686119 +0200
++++ linux-cwt/arch/arm/mach-omap2/devices.c	2012-09-21 11:33:07.603854005 +0200
+@@ -1196,12 +1196,12 @@ static struct cpsw_slave_data am33xx_cps
+ 	{
+ 		.slave_reg_ofs  = 0x208,
+ 		.sliver_reg_ofs = 0xd80,
+-		.phy_id		= "0:00",
++		.phy_id		= "0:01",
+ 	},
+ 	{
+ 		.slave_reg_ofs  = 0x308,
+ 		.sliver_reg_ofs = 0xdc0,
+-		.phy_id		= "0:01",
++		.phy_id		= "0:02",
+ 	},
+ };
+ 

@@ -1,0 +1,542 @@
+--- linux-orig/arch/arm/mach-omap2/board-am335xevm.c	2012-09-21 09:52:48.199686107 +0200
++++ linux-cwt/arch/arm/mach-omap2/board-am335xevm.c	2012-10-10 13:54:54.865733113 +0200
+@@ -43,6 +43,9 @@
+ #include <linux/can/platform/mcp251x.h>
+ #include <linux/input/ti_tscadc.h>
+ 
++#include <linux/rtc.h>
++#include <linux/bcd.h>
++
+ #include <sound/tlv320aic3x.h>
+ 
+ /* LCD controller is similar to DA850 */
+@@ -1824,7 +1827,6 @@ static void bone_tsc_init(int evm_id, in
+ 		pr_err("failed to register touchscreen device\n");
+ }
+ 
+-
+ static void boneleds_init(int evm_id, int profile )
+ {
+ 	int err;
+@@ -2277,6 +2279,9 @@ static struct regulator_consumer_supply
+ 	{
+ 		.supply = "vdda_usb0_1p8v",
+ 	},
++	/*{
++		.supply = "vdda_usb1_1p8v",
++	},*/
+ 	{
+ 		.supply = "vdds_ddr",
+ 	},
+@@ -2330,6 +2335,9 @@ static struct regulator_consumer_supply
+ 	{
+ 		.supply = "vdda_usb0_3p3v",
+ 	},
++	/*{
++		.supply = "vdda_usb1_3p3v",
++	},*/
+ };
+ 
+ /* 3.3V LDO */
+@@ -4041,6 +4049,492 @@ static void __init am335x_evm_map_io(voi
+ 	omapam33xx_map_common_io();
+ }
+ 
++// ===================================================================
++// ===================================================================
++
++// ===================================================================
++// ---------------------------- All UARTs ----------------------------
++static struct pinmux_config chilisom_evb_uart0_pin_mux[] = {
++	{"uart0_txd.uart0_txd", OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT},
++	{"uart0_rxd.uart0_rxd", OMAP_MUX_MODE0 | AM33XX_PIN_INPUT_PULLUP},
++	{NULL, 0},
++};
++
++static struct pinmux_config chilisom_evb_uart1_pin_mux[] = {
++	{"uart1_txd.uart1_txd", OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT},
++	{"uart1_rxd.uart1_rxd", OMAP_MUX_MODE0 | AM33XX_PIN_INPUT_PULLUP},
++	{NULL, 0},
++};
++
++static struct pinmux_config chilisom_evb_uart2_pin_mux[] = {
++	{"spi0_d0.uart2_txd", OMAP_MUX_MODE1 | AM33XX_PIN_OUTPUT},
++	{"spi0_sclk.uart2_rxd", OMAP_MUX_MODE1 | AM33XX_PIN_INPUT_PULLUP},
++	{"lcd_data8.uart2_ctsn", OMAP_MUX_MODE6 | AM33XX_PIN_INPUT_PULLUP},
++	{"lcd_data9.uart2_rtsn", OMAP_MUX_MODE6 | AM33XX_PIN_OUTPUT},
++	{NULL, 0},
++};
++
++static struct pinmux_config chilisom_evb_uart3_pin_mux[] = {
++	{"ecap0_in_pwm0_out.uart3_txd", OMAP_MUX_MODE1 | AM33XX_PIN_OUTPUT},
++	{"spi0_cs1.uart3_rxd", OMAP_MUX_MODE1 | AM33XX_PIN_INPUT_PULLUP},		// Karta SD  - CD
++	{"lcd_data10.uart3_ctsn", OMAP_MUX_MODE6 | AM33XX_PIN_INPUT_PULLUP},
++	{"lcd_data11.lcd_data11", OMAP_MUX_MODE6 | AM33XX_PIN_OUTPUT},		// To jest do sprawdzenia - nie ma tego w pliku mux33xx.c
++	{NULL, 0},
++};
++
++static struct pinmux_config chilisom_evb_uart4_pin_mux[] = {
++	{"uart0_rtsn.uart0_rtsn", OMAP_MUX_MODE1 | AM33XX_PIN_OUTPUT},		// To jest do sprawdzenia - nie ma tego w pliku mux33xx.c	   / UART0_RTS
++	{"uart0_ctsn.uart0_ctsn", OMAP_MUX_MODE1 | AM33XX_PIN_INPUT_PULLUP},		// To jest do sprawdzenia - nie ma tego w pliku mux33xx.c	/UART0_CTS
++	{"lcd_data12.lcd_data12", OMAP_MUX_MODE6 | AM33XX_PIN_INPUT_PULLUP},		// To jest do sprawdzenia - nie ma tego w pliku mux33xx.c
++	{"lcd_data13.lcd_data13", OMAP_MUX_MODE6 | AM33XX_PIN_OUTPUT},		// To jest do sprawdzenia - nie ma tego w pliku mux33xx.c
++	{NULL, 0},
++};
++
++static struct pinmux_config chilisom_evb_uart5_pin_mux[] = {
++	{"rmii1_refclk.rmii1_refclk", OMAP_MUX_MODE3 | AM33XX_PIN_OUTPUT},		// To jest do sprawdzenia - nie ma tego w pliku mux33xx.c	/ Podlaczony RMII1_REFCLK
++	{"lcd_data14.lcd_data14", OMAP_MUX_MODE4 | AM33XX_PIN_INPUT_PULLUP},		// To jest do sprawdzenia - nie ma tego w pliku mux33xx.c
++	{NULL, 0},
++};
++
++static void chilisom_evb_uart_all_init(int evm_id, int profile)
++{
++	pr_info("Configure all UARTs\n");
++	setup_pin_mux(chilisom_evb_uart0_pin_mux);
++	setup_pin_mux(chilisom_evb_uart1_pin_mux);
++	setup_pin_mux(chilisom_evb_uart2_pin_mux);
++	setup_pin_mux(chilisom_evb_uart3_pin_mux);
++	setup_pin_mux(chilisom_evb_uart4_pin_mux);
++	setup_pin_mux(chilisom_evb_uart5_pin_mux);
++	return;
++}
++
++// ---------------------------- All UARTs ----------------------------
++// ===================================================================
++
++// ===================================================================
++// ------------------------------ MMC0 -------------------------------
++static struct omap2_hsmmc_info chilisom_evb_mmc[] __initdata = {
++	{
++		.mmc            = 1,
++		.caps           = MMC_CAP_4_BIT_DATA,
++		.gpio_cd        = GPIO_TO_PIN(0, 12),
++		.gpio_wp        = GPIO_TO_PIN(0, 13),
++		.ocr_mask       = MMC_VDD_32_33 | MMC_VDD_33_34, /* 3V3 */
++	},
++	{
++		.mmc            = 0,	/* will be set at runtime */
++	},
++	{
++		.mmc            = 0,	/* will be set at runtime */
++	},
++	{}      /* Terminator */
++};
++
++/* Module pin mux for mmc0 */
++static struct pinmux_config chilisom_evb_mmc0_pin_mux[] = {
++	{"mmc0_dat3.mmc0_dat3",	OMAP_MUX_MODE0 | AM33XX_PIN_INPUT_PULLUP},
++	{"mmc0_dat2.mmc0_dat2",	OMAP_MUX_MODE0 | AM33XX_PIN_INPUT_PULLUP},
++	{"mmc0_dat1.mmc0_dat1",	OMAP_MUX_MODE0 | AM33XX_PIN_INPUT_PULLUP},
++	{"mmc0_dat0.mmc0_dat0",	OMAP_MUX_MODE0 | AM33XX_PIN_INPUT_PULLUP},
++	{"mmc0_clk.mmc0_clk",	OMAP_MUX_MODE0 | AM33XX_PIN_INPUT_PULLUP},
++	{"mmc0_cmd.mmc0_cmd",	OMAP_MUX_MODE0 | AM33XX_PIN_INPUT_PULLUP},
++	{"uart1_ctsn.gpio0_12", OMAP_MUX_MODE7 | AM33XX_PIN_INPUT_PULLUP},
++	{"uart1_rtsn.gpio0_13", OMAP_MUX_MODE7 | AM33XX_PIN_INPUT_PULLUP},
++	{NULL, 0},
++};
++
++static void chilisom_evb_mmc0_init(int evm_id, int profile)
++{
++	setup_pin_mux(chilisom_evb_mmc0_pin_mux);
++
++	omap2_hsmmc_init(chilisom_evb_mmc);
++	return;
++}
++
++// ------------------------------ MMC0 -------------------------------
++// ===================================================================
++
++
++// ===================================================================
++// ------------------------------ LEDS -------------------------------
++
++/* LEDS ChiliSOM EVB Lite - gpio3_20 -> gpio3_21 */
++
++#define CHILISOM_EVB_USR0_LED GPIO_TO_PIN(3,21)
++#define CHILISOM_EVB_USR1_LED GPIO_TO_PIN(3,20)
++
++static struct gpio_led chilisom_evb_gpio_leds[] = {
++	{
++		.name			= "chili::usr0",
++		.default_trigger	= "heartbeat",
++		.gpio			= CHILISOM_EVB_USR0_LED,
++		.active_low		= 1,
++	},
++	{
++		.name			= "chili::usr1",
++		.default_trigger	= "mmc0",
++		.gpio			= CHILISOM_EVB_USR1_LED,
++		.active_low		= 1,
++	},
++};
++
++static struct gpio_led_platform_data chilisom_evb_gpio_led_info = {
++	.leds		= chilisom_evb_gpio_leds,
++	.num_leds	= ARRAY_SIZE(chilisom_evb_gpio_leds),
++};
++
++static struct platform_device chilisom_evb_leds_gpio = {
++	.name	= "leds-gpio",
++	.id	= -1,
++	.dev	= {
++		.platform_data	= &chilisom_evb_gpio_led_info,
++	},
++};
++
++static struct pinmux_config chilisom_evb_pin_mux[] = {
++	// LED_RED
++	{"mcasp0_ahclkx.gpio3_21", OMAP_MUX_MODE7 | AM33XX_PIN_OUTPUT},
++	// LED_GRN
++	{"mcasp0_axr1.gpio3_20", OMAP_MUX_MODE7 | AM33XX_PIN_OUTPUT},
++	{NULL, 0},
++};
++
++static void chilisom_evb_leds_init(int evm_id, int profile )
++{
++	int err;
++	setup_pin_mux(chilisom_evb_pin_mux);
++	err = platform_device_register(&chilisom_evb_leds_gpio);
++	if (err)
++		pr_err("failed to register ChiliSOM EVB Lite LEDS\n");
++}
++
++// ------------------------------ LEDS -------------------------------
++// ===================================================================
++
++// ===================================================================
++// ------------------------------ NAND -------------------------------
++
++/* NAND partition information */
++static struct mtd_partition chilisom_evb_nand_partitions[] = {
++/* All the partition sizes are listed in terms of NAND block size */
++	{
++		.name           = "SPL",
++		.offset         = 0,			/* Offset = 0x0 */
++		.size           = SZ_128K,
++	},
++	{
++		.name           = "SPL.backup1",
++		.offset         = MTDPART_OFS_APPEND,	/* Offset = 0x20000 */
++		.size           = SZ_128K,
++	},
++	{
++		.name           = "SPL.backup2",
++		.offset         = MTDPART_OFS_APPEND,	/* Offset = 0x40000 */
++		.size           = SZ_128K,
++	},
++	{
++		.name           = "SPL.backup3",
++		.offset         = MTDPART_OFS_APPEND,	/* Offset = 0x60000 */
++		.size           = SZ_128K,
++	},
++	{
++		.name           = "U-Boot",
++		.offset         = MTDPART_OFS_APPEND,   /* Offset = 0x80000 */
++		.size           = 15 * SZ_128K,
++	},
++	{
++		.name           = "U-Boot Env",
++		.offset         = MTDPART_OFS_APPEND,   /* Offset = 0x260000 */
++		.size           = 1 * SZ_128K,
++	},
++	{
++		.name           = "Kernel",
++		.offset         = MTDPART_OFS_APPEND,   /* Offset = 0x280000 */
++		.size           = 40 * SZ_128K,
++	},
++	{
++		.name           = "Config",
++		.offset         = MTDPART_OFS_APPEND,   /* Offset = 0x780000 */
++		.size           = 64 * SZ_128K,
++	},
++	{
++		.name           = "File System",
++		.offset         = MTDPART_OFS_APPEND,   /* Offset = 0xF80000 */
++		.size           = MTDPART_SIZ_FULL,
++	},
++};
++
++static void chilisom_evb_nand_init(int evm_id, int profile)
++{
++	struct omap_nand_platform_data *pdata;
++	struct gpmc_devices_info gpmc_device[2] = {
++		{ NULL, 0 },
++		{ NULL, 0 },
++	};
++
++	setup_pin_mux(nand_pin_mux);
++	pdata = omap_nand_init(chilisom_evb_nand_partitions,
++		ARRAY_SIZE(chilisom_evb_nand_partitions), 0, 0,
++		&am335x_nand_timings);
++	if (!pdata)
++		return;
++	pdata->ecc_opt =OMAP_ECC_BCH8_CODE_HW;
++	pdata->elm_used = true;
++	gpmc_device[0].pdata = pdata;
++	gpmc_device[0].flag = GPMC_DEVICE_NAND;
++
++	omap_init_gpmc(gpmc_device, sizeof(gpmc_device));
++	omap_init_elm();
++}
++
++// ------------------------------ NAND -------------------------------
++// ===================================================================
++
++// ===================================================================
++// ------------------------------ RTC --------------------------------
++
++#define OMAP_RTC_TIME_SEC_REG			0x00
++#define OMAP_RTC_TIME_MIN_REG			0x04
++#define OMAP_RTC_TIME_HOUR_REG			0x08
++#define OMAP_RTC_TIME_DAY_REG			0x0c
++#define OMAP_RTC_TIME_MON_REG			0x10
++#define OMAP_RTC_TIME_YEAR_REG			0x14
++
++#define OMAP_RTC_STATUS_REG				0x44
++#define OMAP_RTC_STATUS_BUSY_EN			BIT(0)
++
++#define OMAP_RTC_INTERRUPT_REG			0x48
++#define OMAP_RTC_INT_ALM2_EN			BIT(4)
++
++#define OMAP_RTC_ALARM2_SEC_REG			0x80
++#define OMAP_RTC_ALARM2_MIN_REG			0x84
++#define OMAP_RTC_ALARM2_HOUR_REG		0x88
++#define OMAP_RTC_ALARM2_DAY_REG			0x8c
++#define OMAP_RTC_ALARM2_MON_REG			0x90
++#define OMAP_RTC_ALARM2_YEAR_REG		0x94
++
++#define OMAP_RTC_PMIC_REG				0x98
++#define OMAP_RTC_PWR_EN_EN				BIT(16)
++
++void chilisom_evb_rtc_poweroff(void)
++{
++	void __iomem *base;
++	int reg_val;
++	struct rtc_time tm;
++
++	base = ioremap(AM33XX_RTC_BASE, SZ_4K);
++
++	if (WARN_ON(!base))
++			return;
++
++	/* Set the Power Enable PMIC*/
++	reg_val = readl(base +  OMAP_RTC_PMIC_REG);
++	writel(reg_val | OMAP_RTC_PWR_EN_EN, base + OMAP_RTC_PMIC_REG);
++
++	/* Rather than play the roll over game, just wait an extra second */
++	do {
++			/* Wait unit the busy bit is cleared.  Max 15 uS */
++			while(readl(base + OMAP_RTC_STATUS_REG) & OMAP_RTC_STATUS_BUSY_EN) {
++			}
++
++			/* Read the current time, convert from binary */
++			tm.tm_sec = bcd2bin(readb(base + OMAP_RTC_TIME_SEC_REG));
++			tm.tm_min = bcd2bin(readb(base + OMAP_RTC_TIME_MIN_REG));
++			tm.tm_hour = bcd2bin(readb(base + OMAP_RTC_TIME_HOUR_REG));
++			tm.tm_mday = bcd2bin(readb(base + OMAP_RTC_TIME_DAY_REG));
++			tm.tm_mon = bcd2bin(readb(base + OMAP_RTC_TIME_MON_REG));
++			tm.tm_year = bcd2bin(readb(base + OMAP_RTC_TIME_YEAR_REG));
++
++			if (59 == tm.tm_sec) {
++					mdelay(100);
++			}
++
++	} while (59 == tm.tm_sec);
++
++	tm.tm_sec++;
++
++	/* Write the Alarm 2 Register with the shutdown time */
++	writeb(bin2bcd(tm.tm_sec), base + OMAP_RTC_ALARM2_SEC_REG);
++	writeb(bin2bcd(tm.tm_min), base + OMAP_RTC_ALARM2_MIN_REG);
++	writeb(bin2bcd(tm.tm_hour), base + OMAP_RTC_ALARM2_HOUR_REG);
++	writeb(bin2bcd(tm.tm_mday), base + OMAP_RTC_ALARM2_DAY_REG);
++	writeb(bin2bcd(tm.tm_mon), base + OMAP_RTC_ALARM2_MON_REG);
++	writeb(bin2bcd(tm.tm_year), base + OMAP_RTC_ALARM2_YEAR_REG);
++
++	/* Enable the Alarm 2 Interrupt */
++	reg_val = readl(base +  OMAP_RTC_INTERRUPT_REG);
++	writel(reg_val | OMAP_RTC_INT_ALM2_EN, base + OMAP_RTC_INTERRUPT_REG);
++
++	iounmap(base);
++
++	/* Power is being pulled */
++	while(1);
++}
++
++static int chilisom_evb_rtc_init(void)
++{
++	void __iomem *base;
++	struct clk *clk;
++
++	clk = clk_get(NULL, "rtc_fck");
++	if (IS_ERR(clk)) {
++		pr_err("rtc : Failed to get RTC clock\n");
++		return -1;
++	}
++
++	if (clk_enable(clk)) {
++		pr_err("rtc: Clock Enable Failed\n");
++		return -1;
++	}
++
++	base = ioremap(AM33XX_RTC_BASE, SZ_4K);
++
++	if (WARN_ON(!base))
++		return -ENOMEM;
++
++	/* Unlock the rtc's registers */
++	writel(0x83e70b13, base + 0x6c);
++	writel(0x95a4f1e0, base + 0x70);
++
++	/*
++	 * Enable the 32K OSc
++	 * TODO: Need a better way to handle this
++	 * Since we want the clock to be running before mmc init
++	 * we need to do it before the rtc probe happens
++	 */
++	writel(0x48, base + 0x54);
++
++	iounmap(base);
++	
++	pm_power_off = chilisom_evb_rtc_poweroff;
++
++	return  platform_device_register(&am335x_rtc_device);
++}
++
++// ------------------------------ RTC --------------------------------
++// ===================================================================
++
++// ===================================================================
++// --------------------------- TPS65217 ------------------------------
++
++static struct i2c_board_info __initdata chilisom_evb_i2c_boardinfo[] = {
++	{
++		I2C_BOARD_INFO("tps65217", TPS65217_I2C_ID),
++		.platform_data  = &beaglebone_tps65217_info,
++	},
++};
++
++static void __init chilisom_evb_i2c_init(void)
++{
++	omap_register_i2c_bus(1, 100, chilisom_evb_i2c_boardinfo,
++				ARRAY_SIZE(chilisom_evb_i2c_boardinfo));
++}
++
++// --------------------------- TPS65217 ------------------------------
++// ===================================================================
++
++// ===================================================================
++// ------------------------------ USB --------------------------------
++
++static struct omap_musb_board_data chilisom_evb_musb_board_data = {
++	.interface_type	= MUSB_INTERFACE_ULPI,
++	/*
++	 * mode[0:3] = USB0PORT's mode
++	 * mode[4:7] = USB1PORT's mode
++	 * AM335X beta EVM has USB0 in OTG mode and USB1 in host mode.
++	 */
++	.mode           = (MUSB_HOST << 4) | MUSB_HOST,
++	.power		= 500,
++	.instances	= 1,
++};
++
++// ------------------------------ USB --------------------------------
++// ===================================================================
++
++// ===================================================================
++// ------------------------- Chili EVM Lite --------------------------
++
++/* ChiliSOM EVB Lite */
++static struct evm_dev_cfg chilisom_evb_dev_cfg[] = {
++	{mii1_init,	DEV_ON_BASEBOARD, PROFILE_NONE},
++	{usb0_init,	DEV_ON_BASEBOARD, PROFILE_NONE},
++	{usb1_init,	DEV_ON_BASEBOARD, PROFILE_NONE},
++	{chilisom_evb_nand_init, DEV_ON_BASEBOARD, PROFILE_NONE},
++	{chilisom_evb_mmc0_init,	DEV_ON_BASEBOARD, PROFILE_NONE},
++#ifdef CONFIG_AM335XEVM_UART
++ 	{chilisom_evb_uart_all_init,	DEV_ON_BASEBOARD, PROFILE_NONE},
++#endif
++	{NULL, 0, 0},
++};
++
++/* ChiliSOM EVB Lite */
++static void setup_chilisom_evb(void)
++{
++	pr_info("The board is a AM335x ChiliSOM EVB Lite.\n");
++	//gp_evm_revision = GP_EVM_ACTUALLY_BEAGLEBONE;
++
++	/* Beagle Bone has Micro-SD slot which doesn't have Write Protect pin */
++	chilisom_evb_mmc[0].gpio_wp = -EINVAL;
++
++	_configure_device(LOW_COST_EVM, chilisom_evb_dev_cfg, PROFILE_NONE);
++
++	/* TPS65217 regulator has full constraints */
++	//regulator_has_full_constraints();
++
++	/* Fill up global evmid */
++	am33xx_evmid_fillup(BEAGLE_BONE_A3);	// Zeby zainicjalizowac MII
++
++	/*TODO:We are registering all pwms for the beaglebone here
++	 *this may effect power management in the future
++	 */
++	//register_all_pwms();
++}
++
++// MACHINE_START .init_machine
++static void __init chilisom_evb_init(void)
++{
++	char macid0[ETH_ALEN]={0xD4, 0x94, 0xA1, 0x3A, 0x66, 0xD3}, macid1[ETH_ALEN]={0x00, 0xFE, 0xFF, 0xFF, 0xFF, 0xFF};
++		
++	am33xx_cpuidle_init();
++	am33xx_mux_init(board_mux);
++	
++	omap_serial_init();
++	chilisom_evb_rtc_init();
++	clkout2_enable();
++	
++	chilisom_evb_i2c_init();
++	
++	setup_chilisom_evb();
++	
++	/* Fillup global mac id */
++	am33xx_cpsw_macidfillup(macid0,
++				macid1);
++	
++	//pr_info("ChiliSOM EVB Lite: initializing cpsw gigabit=0\n");
++	am33xx_cpsw_init(0);
++	
++	pr_info("ChiliSOM EVB Lite: initializing onboard LEDs\n");
++	chilisom_evb_leds_init(0,0);
++	
++	omap_sdrc_init(NULL, NULL);
++	usb_musb_init(&chilisom_evb_musb_board_data);
++	
++	omap_board_config = am335x_evm_config;
++	omap_board_config_size = ARRAY_SIZE(am335x_evm_config);
++	/* Create an alias for icss clock */
++	if (clk_add_alias("pruss", NULL, "pruss_uart_gclk", NULL))
++		pr_warn("failed to create an alias: icss_uart_gclk --> pruss\n");
++	/* Create an alias for gfx/sgx clock */
++	if (clk_add_alias("sgx_ck", NULL, "gfx_fclk", NULL))
++		pr_warn("failed to create an alias: gfx_fclk --> sgx_ck\n");
++}
++
++// ------------------------- Chili EVM Lite --------------------------
++// ===================================================================
++
++// ===================================================================
++// ===================================================================
++
+ MACHINE_START(AM335XEVM, "am335xevm")
+ 	/* Maintainer: Texas Instruments */
+ 	.atag_offset	= 0x100,
+@@ -4049,7 +4543,7 @@ MACHINE_START(AM335XEVM, "am335xevm")
+ 	.init_irq	= ti81xx_init_irq,
+ 	.handle_irq     = omap3_intc_handle_irq,
+ 	.timer		= &omap3_am33xx_timer,
+-	.init_machine	= am335x_evm_init,
++	.init_machine	= chilisom_evb_init,
+ MACHINE_END
+ 
+ MACHINE_START(AM335XIAEVM, "am335xiaevm")

@@ -1,0 +1,11 @@
+--- a/lxsession-logout/Makefile.am	2012-12-14 15:09:56.994176517 +0100
++++ b/lxsession-logout/Makefile.am	2012-12-14 15:07:47.695212654 +0100
+@@ -4,7 +4,7 @@ lxsession_logout_CFLAGS =  $(GTK_CFLAGS)
+ 			-DPACKAGE_LOCALE_DIR=\"$(datadir)/locale\" \
+ 			-DPACKAGE_DATA_DIR=\"$(datadir)\"
+ 
+-lxsession_logout_LDADD = $(GTK_LIBS) $(SM_LIBS) $(DBUS_LIBS)
++lxsession_logout_LDADD = $(GTK_LIBS) $(SM_LIBS) $(DBUS_LIBS) -lX11 -lXext
+ 
+ lxsession_logout_SOURCES= \
+ 	dbus-interface.c \

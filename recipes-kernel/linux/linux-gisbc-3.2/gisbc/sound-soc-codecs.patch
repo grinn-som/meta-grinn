@@ -1,0 +1,626 @@
+diff -rupN linux-orig/sound/soc/codecs/tlv320aic32x4.c linux-gisbc/sound/soc/codecs/tlv320aic32x4.c
+--- linux-orig/sound/soc/codecs/tlv320aic32x4.c	2012-11-09 16:16:08.000000000 +0100
++++ linux-gisbc/sound/soc/codecs/tlv320aic32x4.c	2013-01-02 13:05:10.933812354 +0100
+@@ -44,6 +44,111 @@
+ 
+ #include "tlv320aic32x4.h"
+ 
++#define AIC32x4_8BITS_MASK 0xFF
++
++/* User defined Macros kcontrol builders */
++#define SOC_SINGLE_AIC32x4(xname)                                       \
++        {                                                               \
++                .iface = SNDRV_CTL_ELEM_IFACE_MIXER, .name = xname,     \
++                        .info = __new_control_info, .get = __new_control_get, \
++                        .put = __new_control_put,                       \
++                        .access = SNDRV_CTL_ELEM_ACCESS_READWRITE,      \
++                        }
++
++#define SOC_DOUBLE_R_AIC32x4(xname, reg_left, reg_right, shift, mask, invert) \
++        {	.iface = SNDRV_CTL_ELEM_IFACE_MIXER, .name = (xname),   \
++                        .info = snd_soc_info_volsw_2r_aic32x4,          \
++                        .get = snd_soc_get_volsw_2r_aic32x4, .put = snd_soc_put_volsw_2r_aic32x4, \
++                        .private_value = (reg_left) | ((shift) << 8)  | \
++                        ((mask) << 12) | ((invert) << 20) | ((reg_right) << 24) }
++
++static int __new_control_info(struct snd_kcontrol *kcontrol,
++			      struct snd_ctl_elem_info *uinfo);
++static int __new_control_get(struct snd_kcontrol *kcontrol,
++			     struct snd_ctl_elem_value *ucontrol);
++static int __new_control_put(struct snd_kcontrol *kcontrol,
++			     struct snd_ctl_elem_value *ucontrol);
++static int snd_soc_info_volsw_2r_aic32x4(struct snd_kcontrol *kcontrol,
++                                         struct snd_ctl_elem_info *uinfo);
++static int snd_soc_get_volsw_2r_aic32x4(struct snd_kcontrol *kcontrol,
++					struct snd_ctl_elem_value *ucontrol);
++static int snd_soc_put_volsw_2r_aic32x4(struct snd_kcontrol *kcontrol,
++					struct snd_ctl_elem_value *ucontrol);
++
++static u8 aic32x4_reg_ctl;
++
++//static const char *mute[] = { "Unmute", "Mute" };
++//static const char *dacvolume_extra[] =
++//{ "L&R Ind Vol", "LVol=RVol", "RVol=LVol" };
++//static const char *dacsoftstep_control[] =
++//{ "1 step/sample", "1 step/2 sample", "disabled" };
++//static const char *headset_detection[] = { "Disabled", "Enabled" };
++//static const char *drc_enable[] = { "Disabled", "Enabled" };
++//static const char *beep_generator[] = { "Disabled", "Enabled" };
++//static const char *beepvolume_extra[] =
++//{ "L&R Ind Vol", "LVol=RVol", "RVol=LVol" };
++//static const char *micbias_voltage[] =
++//{ "1.04/1.25V", "1.425/1.7V", "2.075/2.5V", "POWER SUPPY" };
++//static const char *micpga_selection[] = { "off", "10k", "20k", "40k" };
++//static const char  *micpgagain_enable[] = { "Disabled", "Enabled" };
++//static const char *powerup[] = { "Power Down", "Power Up" };
++//static const char *vol_generation[] = { "AVDD", "LDOIN" };
++//static const char *path_control[] =
++//{ "Disabled", "LDAC Data", "RDAC Data", "L&RDAC Data" };
++//static const char  *agc_enable[] = { "Disabled", "Enabled" };
++//
++///*Creates an array of the Single Ended Widgets */
++//static const struct soc_enum aic32x4_enum[] = {
++//        SOC_ENUM_SINGLE (DAC_MUTE_CTRL_REG, 3, 2, mute),
++//        SOC_ENUM_SINGLE (DAC_CHN_REG, 0, 3, dacsoftstep_control),
++//        SOC_ENUM_SINGLE (DAC_MUTE_CTRL_REG, 0, 4, dacvolume_extra),
++//        SOC_ENUM_SINGLE (HEADSET_DETECT, 7, 2, headset_detection),
++//        SOC_ENUM_SINGLE (ADC_FGA, 7, 2, mute),
++//        SOC_ENUM_DOUBLE (DRC_CTRL_REG1, 6, 5, 2, drc_enable),
++//        SOC_ENUM_SINGLE (BEEP_CTRL_REG1, 7, 2, beep_generator),
++//        SOC_ENUM_SINGLE (BEEP_CTRL_REG2, 6, 3, beepvolume_extra),
++//        SOC_ENUM_SINGLE (MICBIAS_CTRL, 4, 4, micbias_voltage),
++//        SOC_ENUM_SINGLE (LMICPGA_PIN_CFG, 6, 4, micpga_selection),
++//        SOC_ENUM_SINGLE (LMICPGA_PIN_CFG, 4, 4, micpga_selection),
++//        SOC_ENUM_SINGLE (LMICPGA_PIN_CFG, 2, 4, micpga_selection),
++//        SOC_ENUM_SINGLE (LMICPGA_PIN_CFG, 0, 4, micpga_selection),
++//        SOC_ENUM_SINGLE (LMICPGA_NIN_CFG, 6, 4, micpga_selection),
++//        SOC_ENUM_SINGLE (LMICPGA_NIN_CFG, 4, 4, micpga_selection),
++//        SOC_ENUM_SINGLE (LMICPGA_NIN_CFG, 2, 4, micpga_selection),
++//        SOC_ENUM_SINGLE (LMICPGA_NIN_CFG, 0, 4, micpga_selection),
++//        SOC_ENUM_SINGLE (RMICPGA_PIN_CFG, 6, 4, micpga_selection),
++//        SOC_ENUM_SINGLE (RMICPGA_PIN_CFG, 4, 4, micpga_selection),
++//        SOC_ENUM_SINGLE (RMICPGA_PIN_CFG, 2, 4, micpga_selection),
++//        SOC_ENUM_SINGLE (RMICPGA_PIN_CFG, 0, 4, micpga_selection),
++//        SOC_ENUM_SINGLE (RMICPGA_NIN_CFG, 6, 4, micpga_selection),
++//        SOC_ENUM_SINGLE (RMICPGA_NIN_CFG, 4, 4, micpga_selection),
++//        SOC_ENUM_SINGLE (RMICPGA_NIN_CFG, 2, 4, micpga_selection),
++//        SOC_ENUM_SINGLE (RMICPGA_NIN_CFG, 0, 4, micpga_selection),
++//        SOC_ENUM_SINGLE (LMICPGA_VOL_CTRL, 7, 2, micpgagain_enable),
++//        SOC_ENUM_SINGLE (RMICPGA_VOL_CTRL, 7, 2, micpgagain_enable),
++//
++//	SOC_ENUM_SINGLE (MICBIAS_CTRL, 6, 2, powerup),
++//	SOC_ENUM_SINGLE (MICBIAS_CTRL, 3, 2, vol_generation),
++//	SOC_ENUM_SINGLE (ADC_CHN_REG, 7, 2, powerup),
++//	SOC_ENUM_SINGLE (ADC_CHN_REG, 6, 2, powerup),
++//	SOC_ENUM_SINGLE (DAC_CHN_REG, 7, 2, powerup),
++//	SOC_ENUM_SINGLE (DAC_CHN_REG, 6, 2, powerup),
++//        SOC_ENUM_SINGLE (DAC_MUTE_CTRL_REG, 2, 2, mute),
++//        SOC_ENUM_SINGLE (ADC_FGA, 3, 2, mute),
++//        SOC_ENUM_SINGLE (DAC_CHN_REG, 4, 4, path_control),
++//        SOC_ENUM_SINGLE (DAC_CHN_REG, 2, 4, path_control),
++//	SOC_ENUM_DOUBLE (OUT_PWR_CTRL, 5, 4, 2, powerup),
++//	SOC_ENUM_DOUBLE (OUT_PWR_CTRL, 3, 2, 2, powerup),
++//	SOC_ENUM_DOUBLE (OUT_PWR_CTRL, 1, 0, 2, powerup),
++//	SOC_ENUM_SINGLE (HPL_GAIN, 6, 2, mute),
++//	SOC_ENUM_SINGLE (HPR_GAIN, 6, 2, mute),
++//
++//	SOC_ENUM_SINGLE (LOL_GAIN, 6, 2, mute),
++//	SOC_ENUM_SINGLE (LOR_GAIN, 6, 2, mute),
++//	SOC_ENUM_SINGLE (LEFT_AGC_REG1, 7, 2, agc_enable),
++//	SOC_ENUM_SINGLE (RIGHT_AGC_REG1, 7, 2, agc_enable),
++//};
++
+ struct aic32x4_rate_divs {
+ 	u32 mclk;
+ 	u32 rate;
+@@ -75,12 +180,16 @@ static DECLARE_TLV_DB_SCALE(tlv_step_1,
+ static DECLARE_TLV_DB_SCALE(tlv_step_0_5, 0, 50, 0);
+ 
+ static const struct snd_kcontrol_new aic32x4_snd_controls[] = {
+-	SOC_DOUBLE_R_TLV("PCM Playback Volume", AIC32X4_LDACVOL,
+-			AIC32X4_RDACVOL, 0, 0x30, 0, tlv_step_0_5),
+-	SOC_DOUBLE_R_TLV("HP Driver Gain Volume", AIC32X4_HPLGAIN,
+-			AIC32X4_HPRGAIN, 0, 0x1D, 0, tlv_step_1),
+-	SOC_DOUBLE_R_TLV("LO Driver Gain Volume", AIC32X4_LOLGAIN,
+-			AIC32X4_LORGAIN, 0, 0x1D, 0, tlv_step_1),
++	SOC_DOUBLE_R_AIC32x4 ("PCM Playback Volume",
++			AIC32X4_LDACVOL, AIC32X4_RDACVOL, 0, 0xAF, 0),
++//	SOC_DOUBLE_R_TLV("PCM Playback Volume", AIC32X4_LDACVOL,
++//			AIC32X4_RDACVOL, 0, 0x30, 0, tlv_step_0_5),							// Tutaj sa tylko dodatnie decybele
++	SOC_DOUBLE_R_AIC32x4("HP Driver Gain Volume", AIC32X4_HPLGAIN, AIC32X4_HPRGAIN, 0, 0x23, 0),
++//	SOC_DOUBLE_R_TLV("HP Driver Gain Volume", AIC32X4_HPLGAIN,
++//			AIC32X4_HPRGAIN, 0, 0x1D, 0, tlv_step_1),
++	SOC_DOUBLE_R_AIC32x4("LO Driver Gain Volume", AIC32X4_LOLGAIN, AIC32X4_LORGAIN, 0, 0x23 , 0),
++//	SOC_DOUBLE_R_TLV("LO Driver Gain Volume", AIC32X4_LOLGAIN,
++//			AIC32X4_LORGAIN, 0, 0x1D, 0, tlv_step_1),
+ 	SOC_DOUBLE_R("HP DAC Playback Switch", AIC32X4_HPLGAIN,
+ 			AIC32X4_HPRGAIN, 6, 0x01, 1),
+ 	SOC_DOUBLE_R("LO DAC Playback Switch", AIC32X4_LOLGAIN,
+@@ -91,8 +200,10 @@ static const struct snd_kcontrol_new aic
+ 	SOC_SINGLE("ADCFGA Left Mute Switch", AIC32X4_ADCFGA, 7, 1, 0),
+ 	SOC_SINGLE("ADCFGA Right Mute Switch", AIC32X4_ADCFGA, 3, 1, 0),
+ 
+-	SOC_DOUBLE_R_TLV("ADC Level Volume", AIC32X4_LADCVOL,
+-			AIC32X4_RADCVOL, 0, 0x28, 0, tlv_step_0_5),
++	SOC_DOUBLE_R_AIC32x4 ("ADC Level Volume",
++			AIC32X4_LADCVOL, AIC32X4_RADCVOL, 0, 0x3F, 0),
++//	SOC_DOUBLE_R_TLV("ADC Level Volume", AIC32X4_LADCVOL,
++//			AIC32X4_RADCVOL, 0, 0x28, 0, tlv_step_0_5),
+ 	SOC_DOUBLE_R_TLV("PGA Level Volume", AIC32X4_LMICPGAVOL,
+ 			AIC32X4_RMICPGAVOL, 0, 0x5f, 0, tlv_step_0_5),
+ 
+@@ -185,6 +296,7 @@ static const struct snd_soc_dapm_widget
+ 			   &hpl_output_mixer_controls[0],
+ 			   ARRAY_SIZE(hpl_output_mixer_controls)),
+ 	SND_SOC_DAPM_PGA("HPL Power", AIC32X4_OUTPWRCTL, 5, 0, NULL, 0),
++//	                              PAGE 1, REG 9  ,bit5,inv0
+ 
+ 	SND_SOC_DAPM_MIXER("LOL Output Mixer", SND_SOC_NOPM, 0, 0,
+ 			   &lol_output_mixer_controls[0],
+@@ -262,6 +374,142 @@ static const struct snd_soc_dapm_route a
+ 	{"Right ADC", NULL, "Right Input Mixer"},
+ };
+ 
++/*
++ *----------------------------------------------------------------------------
++ * Function : snd_soc_info_volsw_2r_aic32x4
++ * Purpose  : Callback to get the info of the value of a double mixer control
++ * 	      that spans two registers.
++ *----------------------------------------------------------------------------
++ */
++static int snd_soc_info_volsw_2r_aic32x4(struct snd_kcontrol *kcontrol,
++                                         struct snd_ctl_elem_info *uinfo)
++{
++        int mask = (kcontrol->private_value >> 12) & 0xff;
++
++        uinfo->type =
++                mask == 1 ? SNDRV_CTL_ELEM_TYPE_BOOLEAN : SNDRV_CTL_ELEM_TYPE_INTEGER;
++        uinfo->count = 2;
++        uinfo->value.integer.min = 0;
++        uinfo->value.integer.max = mask;
++        return 0;
++}
++
++/*
++ *----------------------------------------------------------------------------
++ * Function : snd_soc_get_volsw_2r_aic32x4
++ * Purpose  : Callback to get the value of a double mixer control that spans
++ *            two registers.
++ *----------------------------------------------------------------------------
++ */
++int snd_soc_get_volsw_2r_aic32x4(struct snd_kcontrol *kcontrol,
++				 struct snd_ctl_elem_value *ucontrol)
++{
++	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
++	int reg = kcontrol->private_value & AIC32x4_8BITS_MASK;
++	int reg2 = (kcontrol->private_value >> 24) & AIC32x4_8BITS_MASK;
++	int mask;
++	int shift;
++	unsigned short val, val2;
++
++	if (strcmp (kcontrol->id.name, "PCM Playback Volume") == 0)
++    	{
++      		mask = AIC32x4_8BITS_MASK;
++		shift = 0;
++	}
++	else if (strcmp (kcontrol->id.name, "ADC Level Volume") == 0)
++    	{
++      		mask = 0x7F;
++	        shift = 0;
++	}
++	else if ((!strcmp(kcontrol->id.name, "HP Driver Gain Volume")) ||
++                 (!strcmp(kcontrol->id.name, "LO Driver Gain Volume"))) {
++		mask = 0x3F;
++		shift = 0;
++	}
++	else {
++		printk("Invalid kcontrol name\n");
++		return -1;
++	}
++
++	val = (snd_soc_read(codec, reg) >> shift) & mask;
++	val2 = (snd_soc_read(codec, reg2) >> shift) & mask;
++
++	if (strcmp (kcontrol->id.name, "PCM Playback Volume") == 0)
++	{
++		ucontrol->value.integer.value[0] =
++					(val <= 48) ? (val + 127) : (val - 129);
++		ucontrol->value.integer.value[1] =
++					(val2 <= 48) ? (val2 + 127) : (val2 - 129);
++	}
++	else if (strcmp (kcontrol->id.name, "ADC Level Volume") == 0)
++	{
++                ucontrol->value.integer.value[0] =
++                        (val <= 38) ? (val + 25) : (val - 103);
++                ucontrol->value.integer.value[1] =
++                        (val2 <= 38) ? (val2 + 25) : (val2 - 103);
++	}
++	else if ((!strcmp(kcontrol->id.name, "HP Driver Gain Volume"))
++                 || (!strcmp(kcontrol->id.name, "LO Driver Gain Volume"))) {
++		ucontrol->value.integer.value[0] =
++                        (val <= 29) ? (val + 6) : (val - 58);
++		ucontrol->value.integer.value[1] =
++                        (val2 <= 29) ? (val2 + 6) : (val2 - 58);
++	}
++
++	return 0;
++}
++
++
++/*
++ *----------------------------------------------------------------------------
++ * Function : snd_soc_put_volsw_2r_aic32x4
++ * Purpose  : Callback to set the value of a double mixer control that spans
++ *            two registers.
++ *----------------------------------------------------------------------------
++ */
++int snd_soc_put_volsw_2r_aic32x4(struct snd_kcontrol *kcontrol,
++                                 struct snd_ctl_elem_value *ucontrol)
++{
++        struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
++        int reg = kcontrol->private_value & AIC32x4_8BITS_MASK;
++        int reg2 = (kcontrol->private_value >> 24) & AIC32x4_8BITS_MASK;
++        int err;
++        unsigned short val, val2, val_mask;
++
++        val = ucontrol->value.integer.value[0];
++        val2 = ucontrol->value.integer.value[1];
++
++
++	if (strcmp (kcontrol->id.name, "PCM Playback Volume") == 0) {
++		val = (val >= 127) ? (val - 127) : (val + 129);
++	        val2 = (val2 >= 127) ? (val2 - 127) : (val2 + 129);
++                val_mask = 0xFF;          /* 8 bits */
++	}
++	else if (strcmp (kcontrol->id.name, "ADC Level Volume") == 0) {
++                val = (val >= 25) ? (val - 25) : (val + 103);
++                val2 = (val2 >= 25) ? (val2 - 25) : (val2 + 103);
++                val_mask = 0x7F;          /* 7 bits */
++	}
++	else if ((!strcmp(kcontrol->id.name, "HP Driver Gain Volume")) ||
++                   (!strcmp(kcontrol->id.name, "LO Driver Gain Volume"))) {
++                val = (val >= 6) ? (val - 6) : (val + 58);
++                val2 = (val2 >= 6) ? (val2 - 6) : (val2 + 58);
++                val_mask = 0x3F;	/* 6 bits */
++        }
++	else {
++                printk("Invalid control name\n");
++                return -1;
++        }
++
++	if ((err = snd_soc_update_bits(codec, reg, val_mask, val)) < 0) {
++                printk("Error while updating bits\n");
++                return err;
++        }
++
++        err = snd_soc_update_bits(codec, reg2, val_mask, val2);
++        return err;
++}
++
+ static inline int aic32x4_change_page(struct snd_soc_codec *codec,
+ 					unsigned int new_page)
+ {
+@@ -324,6 +572,75 @@ static unsigned int aic32x4_read(struct
+ 	return i2c_smbus_read_byte_data(codec->control_data, fixed_reg & 0xff);
+ }
+ 
++/*
++ *----------------------------------------------------------------------------
++ * Function : __new_control_info
++ * Purpose  : This function is to initialize data for new control required to
++ *            program the AIC32x4 registers.
++ *----------------------------------------------------------------------------
++ */
++static int __new_control_info(struct snd_kcontrol *kcontrol,
++                              struct snd_ctl_elem_info *uinfo)
++{
++        uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
++        uinfo->count = 1;
++        uinfo->value.integer.min = 0;
++        uinfo->value.integer.max = 65535;
++
++        return 0;
++}
++
++/*
++ *----------------------------------------------------------------------------
++ * Function : __new_control_get
++ * Purpose  : This function is to read data of new control for
++ *            program the AIC32x4 registers.
++ *----------------------------------------------------------------------------
++ */
++static int __new_control_get(struct snd_kcontrol *kcontrol,
++                             struct snd_ctl_elem_value *ucontrol)
++{
++        struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
++        u32 val;
++
++        val = aic32x4_read(codec, aic32x4_reg_ctl);
++        ucontrol->value.integer.value[0] = val;
++
++        return 0;
++}
++
++/*
++ *----------------------------------------------------------------------------
++ * Function : __new_control_put
++ * Purpose  : new_control_put is called to pass data from user/application to
++ *            the driver.
++ *----------------------------------------------------------------------------
++ */
++static int __new_control_put(struct snd_kcontrol *kcontrol,
++                             struct snd_ctl_elem_value *ucontrol)
++{
++        struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
++        struct aic32x4_priv *aic32x4 = snd_soc_codec_get_drvdata(codec);
++
++        u32 data_from_user = ucontrol->value.integer.value[0];
++        u8 data[2];
++
++        aic32x4_reg_ctl = data[0] = (u8) ((data_from_user & 0xFF00) >> 8);
++        data[1] = (u8) ((data_from_user & 0x00FF));
++
++        if (!data[0]) {
++                aic32x4->page_no = data[1];
++        }
++
++        printk("reg = %d val = %x\n", data[0], data[1]);
++
++        if (codec->hw_write(codec->control_data, data, 2) != 2) {
++                printk("Error in i2c write\n");
++                return -EIO;
++        }
++        return 0;
++}
++
+ static inline int aic32x4_get_divs(int mclk, int rate)
+ {
+ 	int i;
+@@ -334,7 +651,7 @@ static inline int aic32x4_get_divs(int m
+ 			return i;
+ 		}
+ 	}
+-	printk(KERN_ERR "aic32x4: master clock and sample rate is not supported\n");
++	printk(KERN_ERR "========= codec ========= aic32x4: master clock and sample rate is not supported\n");
+ 	return -EINVAL;
+ }
+ 
+@@ -363,7 +680,7 @@ static int aic32x4_set_dai_sysclk(struct
+ 		aic32x4->sysclk = freq;
+ 		return 0;
+ 	}
+-	printk(KERN_ERR "aic32x4: invalid frequency to set DAI system clock\n");
++	printk(KERN_ERR "========= codec ========= aic32x4: invalid frequency to set DAI system clock\n");
+ 	return -EINVAL;
+ }
+ 
+@@ -385,14 +702,16 @@ static int aic32x4_set_dai_fmt(struct sn
+ 	/* set master/slave audio interface */
+ 	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
+ 	case SND_SOC_DAIFMT_CBM_CFM:
++		pr_err("========= codec ========= tlv320aic32x4.c: SND_SOC_DAIFMT_CBM_CFM\n");
+ 		aic32x4->master = 1;
+ 		iface_reg_1 |= AIC32X4_BCLKMASTER | AIC32X4_WCLKMASTER;
+ 		break;
+ 	case SND_SOC_DAIFMT_CBS_CFS:
++		pr_err("========= codec ========= tlv320aic32x4.c: SND_SOC_DAIFMT_CBS_CFS\n");
+ 		aic32x4->master = 0;
+ 		break;
+ 	default:
+-		printk(KERN_ERR "aic32x4: invalid DAI master/slave interface\n");
++		printk(KERN_ERR "========= codec ========= aic32x4: invalid DAI master/slave interface\n");
+ 		return -EINVAL;
+ 	}
+ 
+@@ -417,10 +736,12 @@ static int aic32x4_set_dai_fmt(struct sn
+ 			(AIC32X4_LEFT_JUSTIFIED_MODE << AIC32X4_PLLJ_SHIFT);
+ 		break;
+ 	default:
+-		printk(KERN_ERR "aic32x4: invalid DAI interface format\n");
++		printk(KERN_ERR "========= codec ========= aic32x4: invalid DAI interface format\n");
+ 		return -EINVAL;
+ 	}
+ 
++//	switch (fmt & SND_SOC_DAIFMT_FORMAT_MASK)
++
+ 	snd_soc_write(codec, AIC32X4_IFACE1, iface_reg_1);
+ 	snd_soc_write(codec, AIC32X4_IFACE2, iface_reg_2);
+ 	snd_soc_write(codec, AIC32X4_IFACE3, iface_reg_3);
+@@ -438,16 +759,28 @@ static int aic32x4_hw_params(struct snd_
+ 
+ 	i = aic32x4_get_divs(aic32x4->sysclk, params_rate(params));
+ 	if (i < 0) {
+-		printk(KERN_ERR "aic32x4: sampling rate not supported\n");
++		printk(KERN_ERR "========= codec ========= aic32x4: sampling rate not supported\n");
+ 		return i;
+ 	}
+ 
++	pr_err("========= codec ========= tlv320aic32x4.c: aic32x4_hw_params, div = %d\n", i);
++
+ 	/* Use PLL as CODEC_CLKIN and DAC_MOD_CLK as BDIV_CLKIN */
+-	snd_soc_write(codec, AIC32X4_CLKMUX, AIC32X4_PLLCLKIN);
+-	snd_soc_write(codec, AIC32X4_IFACE3, AIC32X4_DACMOD2BCLK);
++	snd_soc_write(codec, AIC32X4_CLKMUX, AIC32X4_PLLCLKIN);												// Low PLL Clock Range
++																										// MCLK -> PLL Input
++																										// PLL Clock -> CODEC_CLKIN
++	snd_soc_write(codec, AIC32X4_IFACE3, AIC32X4_DACMOD2BCLK);											// BDIV_CLKIN = DAC_MOD_CLK
++
++	data = snd_soc_read(codec, AIC32X4_CLKMUX);
++	pr_err("========= codec ========= reg %d = %d\n", (int) AIC32X4_CLKMUX, (int) data);
+ 
+ 	/* We will fix R value to 1 and will make P & J=K.D as varialble */
++	// ============= To raczej nie potrzebne ================
++	data = 0;
+ 	data = snd_soc_read(codec, AIC32X4_PLLPR);
++
++	pr_err("========= codec ========= reg %d = %d\n", (int) AIC32X4_PLLPR, (int) data);
++
+ 	data &= ~(7 << 4);
+ 	snd_soc_write(codec, AIC32X4_PLLPR,
+ 		      (data | (aic32x4_divs[i].p_val << 4) | 0x01));
+@@ -458,6 +791,14 @@ static int aic32x4_hw_params(struct snd_
+ 	snd_soc_write(codec, AIC32X4_PLLDLSB,
+ 		      (aic32x4_divs[i].pll_d & 0xff));
+ 
++	pr_err("========= codec ========= P=%u; J=%u; D=%u\n", aic32x4_divs[i].p_val, aic32x4_divs[i].pll_j,
++			aic32x4_divs[i].pll_d);
++
++	data = 0;
++	data = snd_soc_read(codec, AIC32X4_PLLPR);
++	pr_err("========= codec ========= reg %d = %d\n", (int) AIC32X4_PLLPR, (int) data);
++	// ============= To raczej nie potrzebne ================
++
+ 	/* NDAC divider value */
+ 	data = snd_soc_read(codec, AIC32X4_NDAC);
+ 	data &= ~(0x7f);
+@@ -468,11 +809,15 @@ static int aic32x4_hw_params(struct snd_
+ 	data &= ~(0x7f);
+ 	snd_soc_write(codec, AIC32X4_MDAC, data | aic32x4_divs[i].mdac);
+ 
++	pr_err("========= codec ========= MDAC=%u; NDAC=%u\n", aic32x4_divs[i].mdac, aic32x4_divs[i].ndac);
++
+ 	/* DOSR MSB & LSB values */
+ 	snd_soc_write(codec, AIC32X4_DOSRMSB, aic32x4_divs[i].dosr >> 8);
+ 	snd_soc_write(codec, AIC32X4_DOSRLSB,
+ 		      (aic32x4_divs[i].dosr & 0xff));
+ 
++	pr_err("========= codec ========= dosr=%u\n", aic32x4_divs[i].dosr);
++
+ 	/* NADC divider value */
+ 	data = snd_soc_read(codec, AIC32X4_NADC);
+ 	data &= ~(0x7f);
+@@ -483,14 +828,20 @@ static int aic32x4_hw_params(struct snd_
+ 	data &= ~(0x7f);
+ 	snd_soc_write(codec, AIC32X4_MADC, data | aic32x4_divs[i].madc);
+ 
++	pr_err("========= codec ========= MADC=%u; NADC=%u\n", aic32x4_divs[i].madc, aic32x4_divs[i].nadc);
++
+ 	/* AOSR value */
+ 	snd_soc_write(codec, AIC32X4_AOSR, aic32x4_divs[i].aosr);
+ 
++	pr_err("========= codec ========= aosr=%u\n", aic32x4_divs[i].aosr);
++
+ 	/* BCLK N divider */
+ 	data = snd_soc_read(codec, AIC32X4_BCLKN);
+ 	data &= ~(0x7f);
+ 	snd_soc_write(codec, AIC32X4_BCLKN, data | aic32x4_divs[i].blck_N);
+ 
++	pr_err("========= codec ========= bclk_n=%u\n", aic32x4_divs[i].blck_N);
++
+ 	data = snd_soc_read(codec, AIC32X4_IFACE1);
+ 	data = data & ~(3 << 4);
+ 	switch (params_format(params)) {
+@@ -516,6 +867,8 @@ static int aic32x4_mute(struct snd_soc_d
+ 	struct snd_soc_codec *codec = dai->codec;
+ 	u8 dac_reg;
+ 
++	pr_err("========= codec ========= tlv320aic32x4.c: aic32x4_mute(%d)\n", mute);
++
+ 	dac_reg = snd_soc_read(codec, AIC32X4_DACMUTE) & ~AIC32X4_MUTEON;
+ 	if (mute)
+ 		snd_soc_write(codec, AIC32X4_DACMUTE, dac_reg | AIC32X4_MUTEON);
+@@ -529,9 +882,16 @@ static int aic32x4_set_bias_level(struct
+ {
+ 	struct aic32x4_priv *aic32x4 = snd_soc_codec_get_drvdata(codec);
+ 
++	pr_err("========= codec ========= tlv320aic32x4.c: aic32x4_set_bias_level\n");
++
+ 	switch (level) {
+ 	case SND_SOC_BIAS_ON:
++		pr_err("========= codec ========= aic32x4_set_bias_level SND_SOC_BIAS_ON\n");
+ 		if (aic32x4->master) {
++			u8 data;
++
++			pr_err("========= codec ========= aic32x4_set_bias_level SND_SOC_BIAS_ON master\n");
++
+ 			/* Switch on PLL */
+ 			snd_soc_update_bits(codec, AIC32X4_PLLPR,
+ 					    AIC32X4_PLLEN, AIC32X4_PLLEN);
+@@ -555,12 +915,34 @@ static int aic32x4_set_bias_level(struct
+ 			/* Switch on BCLK_N Divider */
+ 			snd_soc_update_bits(codec, AIC32X4_BCLKN,
+ 					    AIC32X4_BCLKEN, AIC32X4_BCLKEN);
++
++			data = snd_soc_read(codec, AIC32X4_PLLPR);
++			pr_err("========= codec ========= reg %d = %d\n", (int) AIC32X4_PLLPR, (int) data);
++
++			data = snd_soc_read(codec, AIC32X4_NDAC);
++			pr_err("========= codec ========= reg %d = %d\n", (int) AIC32X4_NDAC, (int) data);
++
++			data = snd_soc_read(codec, AIC32X4_MDAC);
++			pr_err("========= codec ========= reg %d = %d\n", (int) AIC32X4_MDAC, (int) data);
++
++			data = snd_soc_read(codec, AIC32X4_NADC);
++			pr_err("========= codec ========= reg %d = %d\n", (int) AIC32X4_NADC, (int) data);
++
++			data = snd_soc_read(codec, AIC32X4_MADC);
++			pr_err("========= codec ========= reg %d = %d\n", (int) AIC32X4_MADC, (int) data);
++
++			data = snd_soc_read(codec, AIC32X4_BCLKN);
++			pr_err("========= codec ========= reg %d = %d\n", (int) AIC32X4_BCLKN, (int) data);
+ 		}
+ 		break;
+ 	case SND_SOC_BIAS_PREPARE:
++		pr_err("========= codec ========= aic32x4_set_bias_level SND_SOC_BIAS_PREPARE\n");
+ 		break;
+ 	case SND_SOC_BIAS_STANDBY:
++		pr_err("========= codec ========= aic32x4_set_bias_level SND_SOC_BIAS_STANDBY\n");
+ 		if (aic32x4->master) {
++			pr_err("========= codec ========= aic32x4_set_bias_level SND_SOC_BIAS_STANDBY master\n");
++
+ 			/* Switch off PLL */
+ 			snd_soc_update_bits(codec, AIC32X4_PLLPR,
+ 					    AIC32X4_PLLEN, 0);
+@@ -587,6 +969,7 @@ static int aic32x4_set_bias_level(struct
+ 		}
+ 		break;
+ 	case SND_SOC_BIAS_OFF:
++		pr_err("========= codec ========= aic32x4_set_bias_level SND_SOC_BIAS_OFF\n");
+ 		break;
+ 	}
+ 	codec->dapm.bias_level = level;
+@@ -653,8 +1036,12 @@ static int aic32x4_probe(struct snd_soc_
+ 		snd_soc_write(codec, AIC32X4_PWRCFG, AIC32X4_AVDDWEAKDISABLE);
+ 	}
+ 	if (aic32x4->power_cfg & AIC32X4_PWR_AIC32X4_LDO_ENABLE) {
++		pr_err("========= codec ========= tlv320aic32x4.c: AIC32X4_PWR_AIC32X4_LDO_ENABLE 1\n");
+ 		snd_soc_write(codec, AIC32X4_LDOCTL, AIC32X4_LDOCTLEN);
+ 	}
++	else {
++		pr_err("========= codec ========= tlv320aic32x4.c: AIC32X4_PWR_AIC32X4_LDO_ENABLE 0\n");
++	}
+ 	tmp_reg = snd_soc_read(codec, AIC32X4_CMMODE);
+ 	if (aic32x4->power_cfg & AIC32X4_PWR_CMMODE_LDOIN_RANGE_18_36) {
+ 		tmp_reg |= AIC32X4_LDOIN_18_36;
+@@ -710,6 +1097,8 @@ static __devinit int aic32x4_i2c_probe(s
+ 	struct aic32x4_priv *aic32x4;
+ 	int ret;
+ 
++	pr_err("========= codec ========= tlv320aic32x4.c: i2c_probe\n");
++
+ 	aic32x4 = kzalloc(sizeof(struct aic32x4_priv), GFP_KERNEL);
+ 	if (aic32x4 == NULL)
+ 		return -ENOMEM;
+@@ -718,10 +1107,13 @@ static __devinit int aic32x4_i2c_probe(s
+ 	i2c_set_clientdata(i2c, aic32x4);
+ 
+ 	if (pdata) {
++		pr_err("========= codec ========= tlv320aic32x4.c: pdata ok\n");
+ 		aic32x4->power_cfg = pdata->power_cfg;
++		pr_err("========= codec ========= tlv320aic32x4.c: power_cfg=%d\n", aic32x4->power_cfg);
+ 		aic32x4->swapdacs = pdata->swapdacs;
+ 		aic32x4->micpga_routing = pdata->micpga_routing;
+ 	} else {
++		pr_err("========= codec ========= tlv320aic32x4.c: pdata 0000\n");
+ 		aic32x4->power_cfg = 0;
+ 		aic32x4->swapdacs = false;
+ 		aic32x4->micpga_routing = 0;
+@@ -763,7 +1155,7 @@ static int __init aic32x4_modinit(void)
+ 
+ 	ret = i2c_add_driver(&aic32x4_i2c_driver);
+ 	if (ret != 0) {
+-		printk(KERN_ERR "Failed to register aic32x4 I2C driver: %d\n",
++		printk(KERN_ERR "========= codec ========= Failed to register aic32x4 I2C driver: %d\n",
+ 		       ret);
+ 	}
+ 	return ret;

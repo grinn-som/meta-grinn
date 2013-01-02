@@ -1,0 +1,31 @@
+--- linux-orig/drivers/video/da8xx-fb.c	2012-11-09 16:19:10.000000000 +0100
++++ linux-gisbc/drivers/video/da8xx-fb.c	2012-12-12 14:57:43.234616280 +0100
+@@ -1005,6 +1005,8 @@ static int fb_check_var(struct fb_var_sc
+ 		var->green.length = 8;
+ 		var->blue.offset = 0;
+ 		var->blue.length = 8;
++		var->transp.offset = 0;
++		var->transp.length = 0;
+ 		break;
+ 	case 32:
+ 		var->transp.offset = 24;
+@@ -1393,10 +1395,19 @@ static int __devinit fb_probe(struct pla
+ 	}
+ 
+ 	/* allocate frame buffer */
++	pr_info("1: vram_size %d width %d height %d bpp %d", par->vram_size, lcdc_info->width, lcdc_info->height, lcd_cfg->bpp);
+ 	par->vram_size = lcdc_info->width * lcdc_info->height * lcd_cfg->bpp;
++	pr_info("2: vram_size %d width %d height %d bpp %d", par->vram_size, lcdc_info->width, lcdc_info->height, lcd_cfg->bpp);
+ 	ulcm = lcm((lcdc_info->width * lcd_cfg->bpp)/8, PAGE_SIZE);
++	pr_info("3: width*bpp/8: %d; ulcm: %d; PAGE_SIZE: %d\n", (lcdc_info->width * lcd_cfg->bpp)/8, ulcm, PAGE_SIZE);
+ 	par->vram_size = roundup(par->vram_size/8, ulcm);
++	pr_info("4: vram_size: %d\n", par->vram_size);
+ 	par->vram_size = par->vram_size * LCD_NUM_BUFFERS;
++	pr_info("5: vram_size: %d\n", par->vram_size);
++
++	pr_info("vram_size: %d; vram_phys: %d;\n", par->vram_size, par->vram_phys);
++
++	pr_info("MAX_ORDER: %d\n", MAX_ORDER);
+ 
+ 	par->vram_virt = dma_alloc_coherent(NULL,
+ 					    par->vram_size,

@@ -1,0 +1,779 @@
+--- linux-orig/arch/arm/mach-omap2/board-am335xevm.c	2012-11-09 16:19:11.000000000 +0100
++++ linux-gisbc/arch/arm/mach-omap2/board-am335xevm.c	2013-01-02 14:41:49.301974089 +0100
+@@ -70,6 +70,10 @@
+ #include <media/soc_camera.h>
+ #include <media/mt9t112.h>
+ 
++#include <linux/rtc.h>
++#include <linux/bcd.h>
++#include <sound/tlv320aic32x4.h>
++
+ #include "board-flash.h"
+ #include "cpuidle33xx.h"
+ #include "mux.h"
+@@ -4159,6 +4163,756 @@ static void __init am335x_evm_map_io(voi
+ 	omapam33xx_map_common_io();
+ }
+ 
++// ===================================================================
++// ===================================================================
++
++// ===================================================================
++// ------------------------------- DVI -------------------------------
++
++static const struct display_panel gisbc_dvi_panel = {
++	WVGA,
++	24,
++	24,
++	COLOR_ACTIVE,
++};
++
++static struct lcd_ctrl_config gisbc_dvi_cfg = {
++	&gisbc_dvi_panel,
++	.ac_bias		= 255,
++	.ac_bias_intrpt		= 0,
++	.dma_burst_sz		= 16,
++	.bpp			= 24,
++	.fdd			= 0x80,
++	.tft_alt_mode		= 0,
++	.stn_565_mode		= 0,
++	.mono_8bit_mode		= 0,
++	.invert_line_clock	= 1,
++	.invert_frm_clock	= 1,
++	.sync_edge		= 0,
++	.sync_ctrl		= 1,
++	.raster_order		= 0,
++};
++
++struct da8xx_lcdc_platform_data gisbc_dvi_pdata = {
++	.manu_name		= "GISBClcd",
++	.controller_data	= &gisbc_dvi_cfg,
++	.type			= "1024x768@60",
++};
++
++static void gisbc_dvi_init(int evm_id, int profile)
++{
++	setup_pin_mux(lcdc16_pin_mux);
++	setup_pin_mux(lcdc_pin_mux);
++
++	// we are being stupid and setting pixclock from here instead of da8xx-fb.c
++	if (conf_disp_pll(560000000)) {
++		pr_info("Failed to set pixclock to 56000000, not attempting to"
++				"register DVI adapter\n");
++		return;
++	}
++
++	if (am33xx_register_lcdc(&gisbc_dvi_pdata))
++		pr_info("Failed to register GISBC DVI panel\n");
++	return;
++}
++
++// ------------------------------- DVI -------------------------------
++// ===================================================================
++
++// ===================================================================
++// ---------------------------- All UARTs ----------------------------
++static struct pinmux_config chilisom_evb_uart0_pin_mux[] = {
++	{"uart0_txd.uart0_txd", OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT},
++	{"uart0_rxd.uart0_rxd", OMAP_MUX_MODE0 | AM33XX_PIN_INPUT_PULLUP},
++	{NULL, 0},
++};
++
++static struct pinmux_config chilisom_evb_uart1_pin_mux[] = {
++	{"uart1_txd.uart1_txd", OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT},
++	{"uart1_rxd.uart1_rxd", OMAP_MUX_MODE0 | AM33XX_PIN_INPUT_PULLUP},
++	{NULL, 0},
++};
++
++static struct pinmux_config chilisom_evb_uart2_pin_mux[] = {
++	{"spi0_d0.uart2_txd", OMAP_MUX_MODE1 | AM33XX_PIN_OUTPUT},
++	{"spi0_sclk.uart2_rxd", OMAP_MUX_MODE1 | AM33XX_PIN_INPUT_PULLUP},
++	{"lcd_data8.uart2_ctsn", OMAP_MUX_MODE6 | AM33XX_PIN_INPUT_PULLUP},
++	{"lcd_data9.uart2_rtsn", OMAP_MUX_MODE6 | AM33XX_PIN_OUTPUT},
++	{NULL, 0},
++};
++
++static struct pinmux_config chilisom_evb_uart3_pin_mux[] = {
++	{"ecap0_in_pwm0_out.uart3_txd", OMAP_MUX_MODE1 | AM33XX_PIN_OUTPUT},
++	{"spi0_cs1.uart3_rxd", OMAP_MUX_MODE1 | AM33XX_PIN_INPUT_PULLUP},		// Karta SD  - CD
++	{"lcd_data10.uart3_ctsn", OMAP_MUX_MODE6 | AM33XX_PIN_INPUT_PULLUP},
++	{"lcd_data11.lcd_data11", OMAP_MUX_MODE6 | AM33XX_PIN_OUTPUT},		// To jest do sprawdzenia - nie ma tego w pliku mux33xx.c
++	{NULL, 0},
++};
++
++static struct pinmux_config chilisom_evb_uart4_pin_mux[] = {
++	{"uart0_rtsn.uart0_rtsn", OMAP_MUX_MODE1 | AM33XX_PIN_OUTPUT},		// To jest do sprawdzenia - nie ma tego w pliku mux33xx.c	   / UART0_RTS
++	{"uart0_ctsn.uart0_ctsn", OMAP_MUX_MODE1 | AM33XX_PIN_INPUT_PULLUP},		// To jest do sprawdzenia - nie ma tego w pliku mux33xx.c	/UART0_CTS
++	{"lcd_data12.lcd_data12", OMAP_MUX_MODE6 | AM33XX_PIN_INPUT_PULLUP},		// To jest do sprawdzenia - nie ma tego w pliku mux33xx.c
++	{"lcd_data13.lcd_data13", OMAP_MUX_MODE6 | AM33XX_PIN_OUTPUT},		// To jest do sprawdzenia - nie ma tego w pliku mux33xx.c
++	{NULL, 0},
++};
++
++static struct pinmux_config chilisom_evb_uart5_pin_mux[] = {
++	{"rmii1_refclk.rmii1_refclk", OMAP_MUX_MODE3 | AM33XX_PIN_OUTPUT},		// To jest do sprawdzenia - nie ma tego w pliku mux33xx.c	/ Podlaczony RMII1_REFCLK
++	{"lcd_data14.lcd_data14", OMAP_MUX_MODE4 | AM33XX_PIN_INPUT_PULLUP},		// To jest do sprawdzenia - nie ma tego w pliku mux33xx.c
++	{NULL, 0},
++};
++
++static void chilisom_evb_uart_all_init(int evm_id, int profile)
++{
++	pr_info("Configure all UARTs\n");
++	setup_pin_mux(chilisom_evb_uart0_pin_mux);
++	setup_pin_mux(chilisom_evb_uart1_pin_mux);
++	setup_pin_mux(chilisom_evb_uart2_pin_mux);
++	setup_pin_mux(chilisom_evb_uart3_pin_mux);
++	setup_pin_mux(chilisom_evb_uart4_pin_mux);
++	setup_pin_mux(chilisom_evb_uart5_pin_mux);
++	return;
++}
++
++// ---------------------------- All UARTs ----------------------------
++// ===================================================================
++
++// ===================================================================
++// ------------------------------ MCASP ------------------------------
++
++static u8 gisbc_am335x_iis_serializer_direction[] = {
++	TX_MODE,		RX_MODE,		INACTIVE_MODE,	INACTIVE_MODE,
++	INACTIVE_MODE,	INACTIVE_MODE,	INACTIVE_MODE,	INACTIVE_MODE,
++	INACTIVE_MODE,	INACTIVE_MODE,	INACTIVE_MODE,	INACTIVE_MODE,
++	INACTIVE_MODE,	INACTIVE_MODE,	INACTIVE_MODE,	INACTIVE_MODE,
++};
++
++static struct snd_platform_data gisbc_snd_data = {
++	.tx_dma_offset	= 0x46000000,	/* McASP0*/
++	.rx_dma_offset	= 0x46000000,
++	.op_mode	= DAVINCI_MCASP_IIS_MODE,
++	.num_serializer	= ARRAY_SIZE(gisbc_am335x_iis_serializer_direction),
++	.tdm_slots	= 2,
++	.serial_dir	= gisbc_am335x_iis_serializer_direction,
++	.asp_chan_q	= EVENTQ_2,
++	.version	= MCASP_VERSION_3,
++	.txnumevt	= 1,
++	.rxnumevt	= 1,
++};
++
++/* GISBC audio pin mux */
++static struct pinmux_config gisbc_mcasp0_pin_mux[] = {
++	{"mcasp0_aclkx.mcasp0_aclkx", OMAP_MUX_MODE0 | AM33XX_PIN_INPUT_PULLDOWN},	/* BCLK */
++	{"mcasp0_fsx.mcasp0_fsx", OMAP_MUX_MODE0 | AM33XX_PIN_INPUT_PULLDOWN},		/* WCLK */
++	{"mcasp0_axr0.mcasp0_axr0", OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT},			/* DOUT */
++	{"mcasp0_axr1.mcasp0_axr1", OMAP_MUX_MODE0 | AM33XX_PIN_INPUT_PULLDOWN},	/* DIN */
++	{"mcasp0_ahclkx.mcasp0_ahclkx", OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT}, 		/* MCLK */
++	{NULL, 0},
++};
++
++#ifdef CONFIG_SND_AM335X_SOC_GISBC
++static int __init gisbc_am335x_register_mcasp(struct snd_platform_data *pdata,
++												int ctrl_nr)
++{
++	int l;
++	struct omap_hwmod *oh;
++	struct platform_device *pdev;
++	char oh_name[12];
++	char *dev_name = "davinci-mcasp";
++
++	pr_info("gisbc_am335x_register_mcasp execute;\n");
++
++	l = snprintf(oh_name, 12, "mcasp%d", ctrl_nr);
++
++	oh = omap_hwmod_lookup(oh_name);
++	if (!oh) {
++		pr_err("could not look up %s\n", oh_name);
++		return -ENODEV;
++	}
++
++	pdev = omap_device_build(dev_name, ctrl_nr, oh, pdata,
++			sizeof(struct snd_platform_data), NULL, 0, 0);
++	WARN(IS_ERR(pdev), "Can't build omap_device for %s:%s.\n",
++			dev_name, oh->name);
++	return IS_ERR(pdev) ? PTR_ERR(pdev) : 0;
++}
++#else
++static int __init gisbc_am335x_register_mcasp(struct snd_platform_data *pdata,
++												int ctrl_nr)
++{
++	pr_info("gisbc_am335x_register_mcasp: return 0;\n");
++	return 0;
++}
++#endif
++
++/* Setup GISBC McASP 0 */
++static void gisbc_mcasp0_init(int evm_id, int profile)
++{
++	printk("GISBC: mcasp0 init\n");
++	/* Configure McASP */
++	setup_pin_mux(gisbc_mcasp0_pin_mux);
++	gisbc_am335x_register_mcasp(&gisbc_snd_data, 0);
++	return;
++}
++
++// ------------------------------ MCASP ------------------------------
++// ===================================================================
++
++// ===================================================================
++// ------------------------------ MMC0 -------------------------------
++static struct omap2_hsmmc_info gisbc_mmc[] __initdata = {
++	{
++		.mmc            = 1,
++		.caps           = MMC_CAP_4_BIT_DATA,
++		.gpio_cd        = GPIO_TO_PIN(0, 12),
++		.gpio_wp        = GPIO_TO_PIN(0, 13),
++		.ocr_mask       = MMC_VDD_32_33 | MMC_VDD_33_34, /* 3V3 */
++	},
++	{
++		.mmc            = 0,	/* will be set at runtime */
++	},
++	{
++		.mmc            = 0,	/* will be set at runtime */
++	},
++	{}      /* Terminator */
++};
++
++/* Module pin mux for mmc0 */
++static struct pinmux_config gisbc_mmc0_pin_mux[] = {
++	{"mmc0_dat3.mmc0_dat3",	OMAP_MUX_MODE0 | AM33XX_PIN_INPUT_PULLUP},
++	{"mmc0_dat2.mmc0_dat2",	OMAP_MUX_MODE0 | AM33XX_PIN_INPUT_PULLUP},
++	{"mmc0_dat1.mmc0_dat1",	OMAP_MUX_MODE0 | AM33XX_PIN_INPUT_PULLUP},
++	{"mmc0_dat0.mmc0_dat0",	OMAP_MUX_MODE0 | AM33XX_PIN_INPUT_PULLUP},
++	{"mmc0_clk.mmc0_clk",	OMAP_MUX_MODE0 | AM33XX_PIN_INPUT_PULLUP},
++	{"mmc0_cmd.mmc0_cmd",	OMAP_MUX_MODE0 | AM33XX_PIN_INPUT_PULLUP},
++	{NULL, 0},
++};
++
++static void gisbc_mmc0_init(int evm_id, int profile)
++{
++	setup_pin_mux(gisbc_mmc0_pin_mux);
++
++	omap2_hsmmc_init(gisbc_mmc);
++	return;
++}
++
++// ------------------------------ MMC0 -------------------------------
++// ===================================================================
++
++// ===================================================================
++// ------------------------------ NAND -------------------------------
++
++/* NAND partition information */
++static struct mtd_partition gisbc_nand_partitions[] = {
++/* All the partition sizes are listed in terms of NAND block size */
++	{
++		.name           = "SPL",
++		.offset         = 0,			/* Offset = 0x0 */
++		.size           = SZ_128K,
++	},
++	{
++		.name           = "SPL.backup1",
++		.offset         = MTDPART_OFS_APPEND,	/* Offset = 0x20000 */
++		.size           = SZ_128K,
++	},
++	{
++		.name           = "SPL.backup2",
++		.offset         = MTDPART_OFS_APPEND,	/* Offset = 0x40000 */
++		.size           = SZ_128K,
++	},
++	{
++		.name           = "SPL.backup3",
++		.offset         = MTDPART_OFS_APPEND,	/* Offset = 0x60000 */
++		.size           = SZ_128K,
++	},
++	{
++		.name           = "U-Boot",
++		.offset         = MTDPART_OFS_APPEND,   /* Offset = 0x80000 */
++		.size           = 15 * SZ_128K,
++	},
++	{
++		.name           = "U-Boot Env",
++		.offset         = MTDPART_OFS_APPEND,   /* Offset = 0x260000 */
++		.size           = 1 * SZ_128K,
++	},
++	{
++		.name           = "Kernel",
++		.offset         = MTDPART_OFS_APPEND,   /* Offset = 0x280000 */
++		.size           = 40 * SZ_128K,
++	},
++	{
++		.name           = "Config",
++		.offset         = MTDPART_OFS_APPEND,   /* Offset = 0x780000 */
++		.size           = 64 * SZ_128K,
++	},
++	{
++		.name           = "File System",
++		.offset         = MTDPART_OFS_APPEND,   /* Offset = 0xF80000 */
++		.size           = MTDPART_SIZ_FULL,
++	},
++};
++
++static void gisbc_nand_init(int evm_id, int profile)
++{
++	struct omap_nand_platform_data *pdata;
++	struct gpmc_devices_info gpmc_device[2] = {
++		{ NULL, 0 },
++		{ NULL, 0 },
++	};
++
++	setup_pin_mux(nand_pin_mux);
++	pdata = omap_nand_init(gisbc_nand_partitions,
++		ARRAY_SIZE(gisbc_nand_partitions), 0, 0,
++		&am335x_nand_timings);
++	if (!pdata)
++		return;
++	pdata->ecc_opt =OMAP_ECC_BCH8_CODE_HW;
++	pdata->elm_used = true;
++	gpmc_device[0].pdata = pdata;
++	gpmc_device[0].flag = GPMC_DEVICE_NAND;
++
++	omap_init_gpmc(gpmc_device, sizeof(gpmc_device));
++	omap_init_elm();
++}
++
++// ------------------------------ NAND -------------------------------
++// ===================================================================
++
++// ===================================================================
++// ------------------------------ RTC --------------------------------
++
++#define OMAP_RTC_TIME_SEC_REG			0x00
++#define OMAP_RTC_TIME_MIN_REG			0x04
++#define OMAP_RTC_TIME_HOUR_REG			0x08
++#define OMAP_RTC_TIME_DAY_REG			0x0c
++#define OMAP_RTC_TIME_MON_REG			0x10
++#define OMAP_RTC_TIME_YEAR_REG			0x14
++
++#define OMAP_RTC_STATUS_REG				0x44
++#define OMAP_RTC_STATUS_BUSY_EN			BIT(0)
++
++#define OMAP_RTC_INTERRUPT_REG			0x48
++#define OMAP_RTC_INT_ALM2_EN			BIT(4)
++
++#define OMAP_RTC_ALARM2_SEC_REG			0x80
++#define OMAP_RTC_ALARM2_MIN_REG			0x84
++#define OMAP_RTC_ALARM2_HOUR_REG		0x88
++#define OMAP_RTC_ALARM2_DAY_REG			0x8c
++#define OMAP_RTC_ALARM2_MON_REG			0x90
++#define OMAP_RTC_ALARM2_YEAR_REG		0x94
++
++#define OMAP_RTC_PMIC_REG				0x98
++#define OMAP_RTC_PWR_EN_EN				BIT(16)
++
++void gisbc_rtc_poweroff(void)
++{
++	void __iomem *base;
++	int reg_val;
++	struct rtc_time tm;
++
++	base = ioremap(AM33XX_RTC_BASE, SZ_4K);
++
++	if (WARN_ON(!base))
++			return;
++
++	/* Set the Power Enable PMIC*/
++	reg_val = readl(base +  OMAP_RTC_PMIC_REG);
++	writel(reg_val | OMAP_RTC_PWR_EN_EN, base + OMAP_RTC_PMIC_REG);
++
++	/* Rather than play the roll over game, just wait an extra second */
++	do {
++			/* Wait unit the busy bit is cleared.  Max 15 uS */
++			while(readl(base + OMAP_RTC_STATUS_REG) & OMAP_RTC_STATUS_BUSY_EN) {
++			}
++
++			/* Read the current time, convert from binary */
++			tm.tm_sec = bcd2bin(readb(base + OMAP_RTC_TIME_SEC_REG));
++			tm.tm_min = bcd2bin(readb(base + OMAP_RTC_TIME_MIN_REG));
++			tm.tm_hour = bcd2bin(readb(base + OMAP_RTC_TIME_HOUR_REG));
++			tm.tm_mday = bcd2bin(readb(base + OMAP_RTC_TIME_DAY_REG));
++			tm.tm_mon = bcd2bin(readb(base + OMAP_RTC_TIME_MON_REG));
++			tm.tm_year = bcd2bin(readb(base + OMAP_RTC_TIME_YEAR_REG));
++
++			if (59 == tm.tm_sec) {
++					mdelay(100);
++			}
++
++	} while (59 == tm.tm_sec);
++
++	tm.tm_sec++;
++
++	/* Write the Alarm 2 Register with the shutdown time */
++	writeb(bin2bcd(tm.tm_sec), base + OMAP_RTC_ALARM2_SEC_REG);
++	writeb(bin2bcd(tm.tm_min), base + OMAP_RTC_ALARM2_MIN_REG);
++	writeb(bin2bcd(tm.tm_hour), base + OMAP_RTC_ALARM2_HOUR_REG);
++	writeb(bin2bcd(tm.tm_mday), base + OMAP_RTC_ALARM2_DAY_REG);
++	writeb(bin2bcd(tm.tm_mon), base + OMAP_RTC_ALARM2_MON_REG);
++	writeb(bin2bcd(tm.tm_year), base + OMAP_RTC_ALARM2_YEAR_REG);
++
++	/* Enable the Alarm 2 Interrupt */
++	reg_val = readl(base +  OMAP_RTC_INTERRUPT_REG);
++	writel(reg_val | OMAP_RTC_INT_ALM2_EN, base + OMAP_RTC_INTERRUPT_REG);
++
++	iounmap(base);
++
++	/* Power is being pulled */
++	while(1);
++}
++
++static int gisbc_rtc_init(void)
++{
++	void __iomem *base;
++	struct clk *clk;
++
++	clk = clk_get(NULL, "rtc_fck");
++	if (IS_ERR(clk)) {
++		pr_err("rtc : Failed to get RTC clock\n");
++		return -1;
++	}
++
++	if (clk_enable(clk)) {
++		pr_err("rtc: Clock Enable Failed\n");
++		return -1;
++	}
++
++	base = ioremap(AM33XX_RTC_BASE, SZ_4K);
++
++	if (WARN_ON(!base))
++		return -ENOMEM;
++
++	/* Unlock the rtc's registers */
++	writel(0x83e70b13, base + 0x6c);
++	writel(0x95a4f1e0, base + 0x70);
++
++	/*
++	 * Enable the 32K OSc
++	 * TODO: Need a better way to handle this
++	 * Since we want the clock to be running before mmc init
++	 * we need to do it before the rtc probe happens
++	 */
++	writel(0x48, base + 0x54);
++
++	iounmap(base);
++	
++	pm_power_off = gisbc_rtc_poweroff;
++
++	return  platform_device_register(&am335x_rtc_device);
++}
++
++// ------------------------------ RTC --------------------------------
++// ===================================================================
++
++// ===================================================================
++// --------------------------- TPS65217 ------------------------------
++
++#define TLV320AIC3204_I2C_ID 0x18
++
++//static struct tps65217_board beaglebone_tps65217_info = {
++//	.tps65217_init_data = &tps65217_regulator_data[0],
++//};
++
++static struct aic32x4_pdata aic32x4_info = {
++	.power_cfg = AIC32X4_PWR_AVDD_DVDD_WEAK_DISABLE |
++				 AIC32X4_PWR_AIC32X4_LDO_ENABLE,
++	.swapdacs = 0,
++	.micpga_routing = 0,
++};
++
++
++static struct i2c_board_info __initdata gisbc_i2c_boardinfo[] = {
++	{
++		I2C_BOARD_INFO("tps65217", TPS65217_I2C_ID),
++		.platform_data  = &beaglebone_tps65217_info,
++	},
++	{
++		I2C_BOARD_INFO("tlv320aic32x4", TLV320AIC3204_I2C_ID),
++		.platform_data = &aic32x4_info,
++	},
++};
++
++static void __init gisbc_i2c_init(void)
++{
++	omap_register_i2c_bus(1, 100, gisbc_i2c_boardinfo,
++				ARRAY_SIZE(gisbc_i2c_boardinfo));
++}
++
++// --------------------------- TPS65217 ------------------------------
++// ===================================================================
++
++// ===================================================================
++// ------------------------------ USB --------------------------------
++
++static struct omap_musb_board_data gisbc_musb_board_data = {
++	.interface_type	= MUSB_INTERFACE_ULPI,
++	/*
++	 * mode[0:3] = USB0PORT's mode
++	 * mode[4:7] = USB1PORT's mode
++	 * GISBC has USB0 and USB1 in host mode.
++	 */
++	.mode           = (MUSB_HOST << 4) | MUSB_HOST,
++	.power		= 500,
++	.instances	= 1,
++};
++
++// ------------------------------ USB --------------------------------
++// ===================================================================
++
++// ===================================================================
++// ----------------------------- RGMII -------------------------------
++
++/* Module pin mux for rgmii1 */
++static struct pinmux_config gisbc_rgmii1_pin_mux[] = {
++	{"mii1_txen.rgmii1_tctl", OMAP_MUX_MODE2 | AM33XX_PIN_OUTPUT},
++	{"mii1_rxdv.rgmii1_rctl", OMAP_MUX_MODE2 | AM33XX_PIN_INPUT_PULLDOWN},
++	{"mii1_txd3.rgmii1_td3", OMAP_MUX_MODE2 | AM33XX_PIN_OUTPUT},
++	{"mii1_txd2.rgmii1_td2", OMAP_MUX_MODE2 | AM33XX_PIN_OUTPUT},
++	{"mii1_txd1.rgmii1_td1", OMAP_MUX_MODE2 | AM33XX_PIN_OUTPUT},
++	{"mii1_txd0.rgmii1_td0", OMAP_MUX_MODE2 | AM33XX_PIN_OUTPUT},
++	{"mii1_txclk.rgmii1_tclk", OMAP_MUX_MODE2 | AM33XX_PIN_OUTPUT},
++	{"mii1_rxclk.rgmii1_rclk", OMAP_MUX_MODE2 | AM33XX_PIN_INPUT_PULLDOWN},
++	{"mii1_rxd3.rgmii1_rd3", OMAP_MUX_MODE2 | AM33XX_PIN_INPUT_PULLUP},
++	{"mii1_rxd2.rgmii1_rd2", OMAP_MUX_MODE2 | AM33XX_PIN_INPUT_PULLUP},
++	{"mii1_rxd1.rgmii1_rd1", OMAP_MUX_MODE2 | AM33XX_PIN_INPUT_PULLUP},
++	{"mii1_rxd0.rgmii1_rd0", OMAP_MUX_MODE2 | AM33XX_PIN_INPUT_PULLUP},
++	{"mdio_data.mdio_data", OMAP_MUX_MODE0 | AM33XX_PIN_INPUT_PULLUP},
++	{"mdio_clk.mdio_clk", OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT_PULLUP},
++	{NULL, 0},
++};
++
++/* Module pin mux for rgmii2 */
++static struct pinmux_config gisbc_rgmii2_pin_mux[] = {
++	{"gpmc_a0.rgmii2_tctl", OMAP_MUX_MODE2 | AM33XX_PIN_OUTPUT},
++	{"gpmc_a1.rgmii2_rctl", OMAP_MUX_MODE2 | AM33XX_PIN_INPUT_PULLDOWN},
++	{"gpmc_a2.rgmii2_td3", OMAP_MUX_MODE2 | AM33XX_PIN_OUTPUT},
++	{"gpmc_a3.rgmii2_td2", OMAP_MUX_MODE2 | AM33XX_PIN_OUTPUT},
++	{"gpmc_a4.rgmii2_td1", OMAP_MUX_MODE2 | AM33XX_PIN_OUTPUT},
++	{"gpmc_a5.rgmii2_td0", OMAP_MUX_MODE2 | AM33XX_PIN_OUTPUT},
++	{"gpmc_a6.rgmii2_tclk", OMAP_MUX_MODE2 | AM33XX_PIN_OUTPUT},
++	{"gpmc_a7.rgmii2_rclk", OMAP_MUX_MODE2 | AM33XX_PIN_INPUT_PULLDOWN},
++	{"gpmc_a8.rgmii2_rd3", OMAP_MUX_MODE2 | AM33XX_PIN_INPUT_PULLUP},
++	{"gpmc_a9.rgmii2_rd2", OMAP_MUX_MODE2 | AM33XX_PIN_INPUT_PULLUP},
++	{"gpmc_a10.rgmii2_rd1", OMAP_MUX_MODE2 | AM33XX_PIN_INPUT_PULLUP},
++	{"gpmc_a11.rgmii2_rd0", OMAP_MUX_MODE2 | AM33XX_PIN_INPUT_PULLUP},
++	{"mdio_data.mdio_data", OMAP_MUX_MODE0 | AM33XX_PIN_INPUT_PULLUP},
++	{"mdio_clk.mdio_clk", OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT_PULLUP},
++	{NULL, 0},
++};
++
++static void gisbc_rgmii1_init(int evm_id, int profile)
++{
++	setup_pin_mux(gisbc_rgmii1_pin_mux);
++	return;
++}
++
++static void gisbc_rgmii2_init(int evm_id, int profile)
++{
++	setup_pin_mux(gisbc_rgmii2_pin_mux);
++	return;
++}
++
++// ------------------ MII_MMD registers -------------------
++#define MII_MMD_ACCESS_CONTROL		0x0d
++#define MII_MMD_ACCESS_REG_DATA		0x0e
++
++// --------------- MII_MMD_ACCESS_CONTROL -----------------
++// BIT 14-15
++#define MII_MMD_OPERATION_MODE		0xc000
++// BIT 0-4
++#define MII_MMD_DEVICE_ADDRESS		0x001f
++
++// Register
++#define MII_MMD_OPERATION_MODE_REGISTER						0x0000
++// Data, no post increment
++#define MII_MMD_OPERATION_MODE_DATA							0x4000
++// Data, post increment on reads and writes
++#define MII_MMD_OPERATION_MODE_DATA_INCREMENT_READ_WRITE	0x8000
++// Data, post increment on writes only
++#define MII_MMD_OPERATION_MODE_DATA_INCREMENT_WRITE			0xc000
++
++// --------------- MII_MMD_ACCESS_REG_DATA -----------------
++// BIT 0-15
++#define MII_MMD_REG_DATA			0xffff
++
++#define MMD_RX_DV					0x00f0
++#define MMD_TX_EN					0x000f
++
++#define MMD_RXD_ALL					0xffff
++#define MMD_RXD3					0xf000
++#define MMD_RXD2					0x0f00
++#define MMD_RXD1					0x00f0
++#define MMD_RXD0					0x000f
++
++#define MMD_TXD_ALL					0xffff
++#define MMD_TXD3					0xf000
++#define MMD_TXD2					0x0f00
++#define MMD_TXD1					0x00f0
++#define MMD_TXD0					0x000f
++
++#define MMD_GTX_CLK					0x03e0
++#define MMD_RX_CLK					0x001f
++
++#define GISBC_PHY_ID				0x00221620
++#define GISBC_PHY_MASK				0xfffffff0
++
++static int gisbc_phy_fixup(struct phy_device *phydev)
++{
++	int retval;
++	int reg4, reg5, reg6, reg8;
++	
++	pr_info("GISBC phy_fixup");
++	
++	//================================== Wczytujemy ===============================================
++	phy_write(phydev, MII_MMD_ACCESS_CONTROL, (0x2 & MII_MMD_DEVICE_ADDRESS));	// Wybieramy device address
++	phy_write(phydev, MII_MMD_ACCESS_REG_DATA, (0x4 & MII_MMD_REG_DATA));		// Wybieramy register
++	phy_write(phydev, MII_MMD_ACCESS_CONTROL, 
++			  ((MII_MMD_OPERATION_MODE_DATA_INCREMENT_READ_WRITE & MII_MMD_OPERATION_MODE) 
++			  | (0x2 & MII_MMD_DEVICE_ADDRESS)));	// Wybieramy operation mode i device address
++	
++	retval = phy_read(phydev, MII_MMD_ACCESS_REG_DATA);
++	reg4 = (retval & MII_MMD_REG_DATA);
++	
++	retval = phy_read(phydev, MII_MMD_ACCESS_REG_DATA);	
++	reg5 = (retval & MII_MMD_REG_DATA);
++	
++	retval = phy_read(phydev, MII_MMD_ACCESS_REG_DATA);	
++	reg6 = (retval & MII_MMD_REG_DATA);
++	
++	phy_write(phydev, MII_MMD_ACCESS_CONTROL, (0x2 & MII_MMD_DEVICE_ADDRESS));	// Wybieramy device address
++	phy_write(phydev, MII_MMD_ACCESS_REG_DATA, (0x8 & MII_MMD_REG_DATA));		// Wybieramy register
++	phy_write(phydev, MII_MMD_ACCESS_CONTROL, 
++			  ((MII_MMD_OPERATION_MODE_DATA & MII_MMD_OPERATION_MODE) 
++			  | (0x2 & MII_MMD_DEVICE_ADDRESS)));	// Wybieramy operation mode i device address
++	
++	retval = phy_read(phydev, MII_MMD_ACCESS_REG_DATA);	
++	reg8 = (retval & MII_MMD_REG_DATA);
++	
++	pr_info("phy 0x4: %d", reg4);
++	pr_info("phy 0x5: %d", reg5);
++	pr_info("phy 0x6: %d", reg6);
++	pr_info("phy 0x8: %d", reg8);
++	
++	//================================== Zapisujemy ===============================================
++	
++	
++	reg4 = (reg4 & (~MMD_TX_EN));				// Kasujemy bity
++	reg4 = (reg4 | (0x0 & MMD_TX_EN));			// Ustawiamy bity
++	
++	reg6 = (reg6 & (~MMD_TXD_ALL));				// Kasujemy bity
++	reg6 = (reg6 | (0x0 & MMD_TXD_ALL));		// Ustawiamy bity
++	
++	reg8 = (reg8 & (~MMD_GTX_CLK));				// Kasujemy bity
++	reg8 = (reg8 | ((0x1f << 5) & MMD_GTX_CLK));// Ustawiamy bity
++	
++	pr_info("phy_new 0x4: %d", reg4);
++	pr_info("phy_new 0x6: %d", reg6);
++	pr_info("phy_new 0x8: %d", reg8);
++	
++	
++	phy_write(phydev, MII_MMD_ACCESS_CONTROL, (0x2 & MII_MMD_DEVICE_ADDRESS));	// Wybieramy device address
++	phy_write(phydev, MII_MMD_ACCESS_REG_DATA, (0x4 & MII_MMD_REG_DATA));		// Wybieramy register
++	phy_write(phydev, MII_MMD_ACCESS_CONTROL, 
++			  ((MII_MMD_OPERATION_MODE_DATA_INCREMENT_WRITE & MII_MMD_OPERATION_MODE) 
++			  | (0x2 & MII_MMD_DEVICE_ADDRESS)));	// Wybieramy operation mode i device address
++	
++	phy_write(phydev, MII_MMD_ACCESS_REG_DATA, reg4);
++	phy_write(phydev, MII_MMD_ACCESS_REG_DATA, reg5);
++	phy_write(phydev, MII_MMD_ACCESS_REG_DATA, reg6);
++	
++	phy_write(phydev, MII_MMD_ACCESS_CONTROL, (0x2 & MII_MMD_DEVICE_ADDRESS));	// Wybieramy device address
++	phy_write(phydev, MII_MMD_ACCESS_REG_DATA, (0x8 & MII_MMD_REG_DATA));		// Wybieramy register
++	phy_write(phydev, MII_MMD_ACCESS_CONTROL, 
++			  ((MII_MMD_OPERATION_MODE_DATA & MII_MMD_OPERATION_MODE) 
++			  | (0x2 & MII_MMD_DEVICE_ADDRESS)));	// Wybieramy operation mode i device address
++	
++	phy_write(phydev, MII_MMD_ACCESS_REG_DATA, reg8);
++	
++	pr_info("phy_new wrote");
++	
++	return 0;
++}
++
++// ----------------------------- RGMII -------------------------------
++// ===================================================================
++
++// ===================================================================
++// ----------------------------- GISBC -------------------------------
++
++/* GISBC */
++static struct evm_dev_cfg gisbc_dev_cfg[] = {
++	{gisbc_rgmii1_init,	DEV_ON_BASEBOARD, PROFILE_NONE},
++	{gisbc_rgmii2_init,	DEV_ON_BASEBOARD, PROFILE_NONE},
++	{usb0_init,	DEV_ON_BASEBOARD, PROFILE_NONE},
++	{usb1_init,	DEV_ON_BASEBOARD, PROFILE_NONE},
++	{gisbc_nand_init, DEV_ON_BASEBOARD, PROFILE_NONE},
++	{gisbc_mmc0_init,	DEV_ON_BASEBOARD, PROFILE_NONE},
++#ifdef CONFIG_AM335XEVM_UART
++ 	{chilisom_evb_uart_all_init,	DEV_ON_BASEBOARD, PROFILE_NONE},
++#endif
++	{NULL, 0, 0},
++};
++
++/* GISBC */
++static void setup_gisbc(void)
++{
++	pr_info("The board is a AM335x GISBC.\n");
++
++	/* GISBC has Micro-SD slot which doesn't have Write Protect
++	 * & Card Detect pin
++	 */
++	gisbc_mmc[0].gpio_wp = -EINVAL;
++	gisbc_mmc[0].gpio_cd = -EINVAL;
++
++	_configure_device(LOW_COST_EVM, gisbc_dev_cfg, PROFILE_NONE);
++	
++	phy_register_fixup_for_uid(GISBC_PHY_ID, GISBC_PHY_MASK,
++			gisbc_phy_fixup);
++}
++
++static void __init gisbc_init(void)
++{
++	char macid0[ETH_ALEN]={0xD4, 0x94, 0xA1, 0x3A, 0x66, 0xD3},
++	     macid1[ETH_ALEN]={0xD4, 0x94, 0xA1, 0x3A, 0x66, 0xD4};
++		
++	am33xx_cpuidle_init();
++	am33xx_mux_init(board_mux);
++	
++	omap_serial_init();
++	gisbc_rtc_init();
++	clkout2_enable();
++	
++	gisbc_i2c_init();
++	
++	setup_gisbc();
++	
++	/* Fillup global mac id */
++	am33xx_cpsw_macidfillup(macid0, macid1);
++	
++	am33xx_cpsw_init(1);
++	
++	gisbc_dvi_init(0,0);
++	
++	gisbc_mcasp0_init(0,0);
++
++	omap_sdrc_init(NULL, NULL);
++	usb_musb_init(&gisbc_musb_board_data);
++	
++	omap_board_config = am335x_evm_config;
++	omap_board_config_size = ARRAY_SIZE(am335x_evm_config);
++	/* Create an alias for icss clock */
++	if (clk_add_alias("pruss", NULL, "pruss_uart_gclk", NULL))
++		pr_warn("failed to create an alias: icss_uart_gclk --> pruss\n");
++	/* Create an alias for gfx/sgx clock */
++	if (clk_add_alias("sgx_ck", NULL, "gfx_fclk", NULL))
++		pr_warn("failed to create an alias: gfx_fclk --> sgx_ck\n");
++}
++
++// ----------------------------- GISBC -------------------------------
++// ===================================================================
++
++// ===================================================================
++// ===================================================================
++
+ MACHINE_START(AM335XEVM, "am335xevm")
+ 	/* Maintainer: Texas Instruments */
+ 	.atag_offset	= 0x100,
+@@ -4167,7 +4921,7 @@ MACHINE_START(AM335XEVM, "am335xevm")
+ 	.init_irq	= ti81xx_init_irq,
+ 	.handle_irq     = omap3_intc_handle_irq,
+ 	.timer		= &omap3_am33xx_timer,
+-	.init_machine	= am335x_evm_init,
++	.init_machine	= gisbc_init,
+ MACHINE_END
+ 
+ MACHINE_START(AM335XIAEVM, "am335xiaevm")

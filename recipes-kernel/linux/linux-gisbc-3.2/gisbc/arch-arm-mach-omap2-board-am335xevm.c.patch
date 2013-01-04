@@ -1,5 +1,5 @@
 --- linux-orig/arch/arm/mach-omap2/board-am335xevm.c	2012-11-09 16:19:11.000000000 +0100
-+++ linux-gisbc/arch/arm/mach-omap2/board-am335xevm.c	2013-01-02 14:41:49.301974089 +0100
++++ linux-gisbc/arch/arm/mach-omap2/board-am335xevm.c	2013-01-04 12:31:18.580603622 +0100
 @@ -70,6 +70,10 @@
  #include <media/soc_camera.h>
  #include <media/mt9t112.h>
@@ -456,7 +456,7 @@
 +// ===================================================================
 +
 +// ===================================================================
-+// --------------------------- TPS65217 ------------------------------
++// ------------------- TPS65217 & TLV320AIC3204 ----------------------
 +
 +#define TLV320AIC3204_I2C_ID 0x18
 +
@@ -468,7 +468,7 @@
 +	.power_cfg = AIC32X4_PWR_AVDD_DVDD_WEAK_DISABLE |
 +				 AIC32X4_PWR_AIC32X4_LDO_ENABLE,
 +	.swapdacs = 0,
-+	.micpga_routing = 0,
++	.micpga_routing = AIC32X4_MICPGA_ROUTE_NEG_CM1_10K,
 +};
 +
 +
@@ -489,7 +489,7 @@
 +				ARRAY_SIZE(gisbc_i2c_boardinfo));
 +}
 +
-+// --------------------------- TPS65217 ------------------------------
++// ------------------- TPS65217 & TLV320AIC3204 ----------------------
 +// ===================================================================
 +
 +// ===================================================================
@@ -612,14 +612,15 @@
 +	int retval;
 +	int reg4, reg5, reg6, reg8;
 +	
-+	pr_info("GISBC phy_fixup");
-+	
-+	//================================== Wczytujemy ===============================================
-+	phy_write(phydev, MII_MMD_ACCESS_CONTROL, (0x2 & MII_MMD_DEVICE_ADDRESS));	// Wybieramy device address
-+	phy_write(phydev, MII_MMD_ACCESS_REG_DATA, (0x4 & MII_MMD_REG_DATA));		// Wybieramy register
++	/* ---------- Read all registers ---------- */
++	// Choose device address
++	phy_write(phydev, MII_MMD_ACCESS_CONTROL, (0x2 & MII_MMD_DEVICE_ADDRESS));
++	// Choose register
++	phy_write(phydev, MII_MMD_ACCESS_REG_DATA, (0x4 & MII_MMD_REG_DATA));
++	// Choose operation mode and device address
 +	phy_write(phydev, MII_MMD_ACCESS_CONTROL, 
-+			  ((MII_MMD_OPERATION_MODE_DATA_INCREMENT_READ_WRITE & MII_MMD_OPERATION_MODE) 
-+			  | (0x2 & MII_MMD_DEVICE_ADDRESS)));	// Wybieramy operation mode i device address
++			(	(MII_MMD_OPERATION_MODE_DATA_INCREMENT_READ_WRITE
++				& MII_MMD_OPERATION_MODE) | (0x2 & MII_MMD_DEVICE_ADDRESS)) );
 +	
 +	retval = phy_read(phydev, MII_MMD_ACCESS_REG_DATA);
 +	reg4 = (retval & MII_MMD_REG_DATA);
@@ -630,56 +631,55 @@
 +	retval = phy_read(phydev, MII_MMD_ACCESS_REG_DATA);	
 +	reg6 = (retval & MII_MMD_REG_DATA);
 +	
-+	phy_write(phydev, MII_MMD_ACCESS_CONTROL, (0x2 & MII_MMD_DEVICE_ADDRESS));	// Wybieramy device address
-+	phy_write(phydev, MII_MMD_ACCESS_REG_DATA, (0x8 & MII_MMD_REG_DATA));		// Wybieramy register
++	// Choose device address
++	phy_write(phydev, MII_MMD_ACCESS_CONTROL, (0x2 & MII_MMD_DEVICE_ADDRESS));
++	// Choose register
++	phy_write(phydev, MII_MMD_ACCESS_REG_DATA, (0x8 & MII_MMD_REG_DATA));
++	// Choose operation mode and device address
 +	phy_write(phydev, MII_MMD_ACCESS_CONTROL, 
 +			  ((MII_MMD_OPERATION_MODE_DATA & MII_MMD_OPERATION_MODE) 
-+			  | (0x2 & MII_MMD_DEVICE_ADDRESS)));	// Wybieramy operation mode i device address
++			  | (0x2 & MII_MMD_DEVICE_ADDRESS)));
 +	
 +	retval = phy_read(phydev, MII_MMD_ACCESS_REG_DATA);	
 +	reg8 = (retval & MII_MMD_REG_DATA);
 +	
-+	pr_info("phy 0x4: %d", reg4);
-+	pr_info("phy 0x5: %d", reg5);
-+	pr_info("phy 0x6: %d", reg6);
-+	pr_info("phy 0x8: %d", reg8);
++	/* ---------- Write new values ---------- */
 +	
-+	//================================== Zapisujemy ===============================================
++	/* Update bits */
++	reg4 = (reg4 & (~MMD_TX_EN));
++	reg4 = (reg4 | (0x0 & MMD_TX_EN));
 +	
++	reg6 = (reg6 & (~MMD_TXD_ALL));
++	reg6 = (reg6 | (0x0 & MMD_TXD_ALL));
 +	
-+	reg4 = (reg4 & (~MMD_TX_EN));				// Kasujemy bity
-+	reg4 = (reg4 | (0x0 & MMD_TX_EN));			// Ustawiamy bity
++	reg8 = (reg8 & (~MMD_GTX_CLK));
++	reg8 = (reg8 | ((0x1f << 5) & MMD_GTX_CLK));
 +	
-+	reg6 = (reg6 & (~MMD_TXD_ALL));				// Kasujemy bity
-+	reg6 = (reg6 | (0x0 & MMD_TXD_ALL));		// Ustawiamy bity
-+	
-+	reg8 = (reg8 & (~MMD_GTX_CLK));				// Kasujemy bity
-+	reg8 = (reg8 | ((0x1f << 5) & MMD_GTX_CLK));// Ustawiamy bity
-+	
-+	pr_info("phy_new 0x4: %d", reg4);
-+	pr_info("phy_new 0x6: %d", reg6);
-+	pr_info("phy_new 0x8: %d", reg8);
-+	
-+	
-+	phy_write(phydev, MII_MMD_ACCESS_CONTROL, (0x2 & MII_MMD_DEVICE_ADDRESS));	// Wybieramy device address
-+	phy_write(phydev, MII_MMD_ACCESS_REG_DATA, (0x4 & MII_MMD_REG_DATA));		// Wybieramy register
++	// Choose device address
++	phy_write(phydev, MII_MMD_ACCESS_CONTROL, (0x2 & MII_MMD_DEVICE_ADDRESS));
++	// Choose register
++	phy_write(phydev, MII_MMD_ACCESS_REG_DATA, (0x4 & MII_MMD_REG_DATA));
++	// Choose operation mode and device address
 +	phy_write(phydev, MII_MMD_ACCESS_CONTROL, 
-+			  ((MII_MMD_OPERATION_MODE_DATA_INCREMENT_WRITE & MII_MMD_OPERATION_MODE) 
-+			  | (0x2 & MII_MMD_DEVICE_ADDRESS)));	// Wybieramy operation mode i device address
-+	
++			  (	(MII_MMD_OPERATION_MODE_DATA_INCREMENT_WRITE
++				& MII_MMD_OPERATION_MODE) | (0x2 & MII_MMD_DEVICE_ADDRESS)) );
++
++	/* Write */
 +	phy_write(phydev, MII_MMD_ACCESS_REG_DATA, reg4);
 +	phy_write(phydev, MII_MMD_ACCESS_REG_DATA, reg5);
 +	phy_write(phydev, MII_MMD_ACCESS_REG_DATA, reg6);
 +	
-+	phy_write(phydev, MII_MMD_ACCESS_CONTROL, (0x2 & MII_MMD_DEVICE_ADDRESS));	// Wybieramy device address
-+	phy_write(phydev, MII_MMD_ACCESS_REG_DATA, (0x8 & MII_MMD_REG_DATA));		// Wybieramy register
++	// Choose device address
++	phy_write(phydev, MII_MMD_ACCESS_CONTROL, (0x2 & MII_MMD_DEVICE_ADDRESS));
++	// Choose register
++	phy_write(phydev, MII_MMD_ACCESS_REG_DATA, (0x8 & MII_MMD_REG_DATA));
++	// Choose operation mode and device address
 +	phy_write(phydev, MII_MMD_ACCESS_CONTROL, 
 +			  ((MII_MMD_OPERATION_MODE_DATA & MII_MMD_OPERATION_MODE) 
-+			  | (0x2 & MII_MMD_DEVICE_ADDRESS)));	// Wybieramy operation mode i device address
++			  | (0x2 & MII_MMD_DEVICE_ADDRESS)));
 +	
++	/* Write */
 +	phy_write(phydev, MII_MMD_ACCESS_REG_DATA, reg8);
-+	
-+	pr_info("phy_new wrote");
 +	
 +	return 0;
 +}

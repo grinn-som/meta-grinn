@@ -1,5 +1,5 @@
 --- linux-orig/arch/arm/mach-omap2/devices.c	2012-11-09 16:19:09.000000000 +0100
-+++ linux-gisbc/arch/arm/mach-omap2/devices.c	2013-01-02 15:05:14.014013270 +0100
++++ linux-gisbc/arch/arm/mach-omap2/devices.c	2013-01-04 11:59:41.256550700 +0100
 @@ -1196,12 +1196,12 @@ static struct cpsw_slave_data am33xx_cps
  	{
  		.slave_reg_ofs  = 0x208,

@@ -1951,6 +1951,7 @@ PATCHES_OVER_PSP = " \
 	file://gisbc/drivers-mfd-tps65217.c.patch \
 	file://gisbc/arch-arm-mach-omap2-Kconfig.patch \
 	file://gisbc/include-linux-mmzone.h.patch \
+	file://gisbc/include-sound-tlv320aic32x4.h.patch \
 	file://gisbc/sound-soc-codecs.patch \
 	file://gisbc/sound-soc-davinci.patch \
 "

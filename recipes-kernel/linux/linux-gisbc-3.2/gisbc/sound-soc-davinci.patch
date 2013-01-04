@@ -1,67 +1,49 @@
-diff -rupN linux-orig/sound/soc/davinci/davinci-evm.c linux-gisbc/sound/soc/davinci/davinci-evm.c
---- linux-orig/sound/soc/davinci/davinci-evm.c	2012-11-09 16:19:09.000000000 +0100
-+++ linux-gisbc/sound/soc/davinci/davinci-evm.c	2013-01-02 12:34:01.321760206 +0100
-@@ -31,6 +31,10 @@
- 
- #define AUDIO_FORMAT (SND_SOC_DAIFMT_DSP_B | \
- 		SND_SOC_DAIFMT_CBM_CFM | SND_SOC_DAIFMT_IB_NF)
+diff -rupN linux-orig/sound/soc/davinci/davinci-gisbc.c linux-gisbc/sound/soc/davinci/davinci-gisbc.c
+--- linux-orig/sound/soc/davinci/davinci-gisbc.c	1970-01-01 01:00:00.000000000 +0100
++++ linux-gisbc/sound/soc/davinci/davinci-gisbc.c	2013-01-04 11:59:41.288550701 +0100
+@@ -0,0 +1,121 @@
++/*
++ * ASoC driver for TI DAVINCI EVM platform
++ *
++ * Author:      Vladimir Barinov, <vbarinov@embeddedalley.com>
++ * Copyright:   (C) 2007 MontaVista Software, Inc., <source@mvista.com>
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License version 2 as
++ * published by the Free Software Foundation.
++ */
 +
++#include <linux/module.h>
++#include <linux/moduleparam.h>
++#include <linux/timer.h>
++#include <linux/interrupt.h>
++#include <linux/platform_device.h>
++#include <linux/i2c.h>
++#include <sound/core.h>
++#include <sound/pcm.h>
++#include <sound/soc.h>
++
++#include <asm/dma.h>
++#include <asm/mach-types.h>
++
++#include <asm/hardware/asp.h>
++#include <mach/edma.h>
++
++#include "davinci-pcm.h"
++#include "davinci-i2s.h"
++#include "davinci-mcasp.h"
++
++#define SYSCLK	24000000
 +#define GISBC_AUDIO_FORMAT (SND_SOC_DAIFMT_DSP_B | \
 +		SND_SOC_DAIFMT_CBM_CFM | SND_SOC_DAIFMT_IB_NF)
 +
- static int evm_hw_params(struct snd_pcm_substream *substream,
- 			 struct snd_pcm_hw_params *params)
- {
-@@ -40,6 +44,8 @@ static int evm_hw_params(struct snd_pcm_
- 	int ret = 0;
- 	unsigned sysclk;
- 
-+	printk(KERN_ERR "========== evm ========== davinci-evm.c: evm_hw_params\n");
-+
- 	/* ASP1 on DM355 EVM is clocked by an external oscillator */
- 	if (machine_is_davinci_dm355_evm() || machine_is_davinci_dm6467_evm() ||
- 	    machine_is_davinci_dm365_evm())
-@@ -57,18 +63,18 @@ static int evm_hw_params(struct snd_pcm_
- 		sysclk = 24576000;
- 	/* On AM335X, CODEC gets MCLK from external Xtal (12MHz). */
- 	else if (machine_is_am335xevm())
--		sysclk = 12000000;
-+		sysclk = 24000000;
- 
- 	else
- 		return -EINVAL;
- 
- 	/* set codec DAI configuration */
--	ret = snd_soc_dai_set_fmt(codec_dai, AUDIO_FORMAT);
-+	ret = snd_soc_dai_set_fmt(codec_dai, GISBC_AUDIO_FORMAT);
- 	if (ret < 0)
- 		return ret;
- 
- 	/* set cpu DAI configuration */
--	ret = snd_soc_dai_set_fmt(cpu_dai, AUDIO_FORMAT);
-+	ret = snd_soc_dai_set_fmt(cpu_dai, GISBC_AUDIO_FORMAT);
- 	if (ret < 0)
- 		return ret;
- 
-@@ -155,6 +161,40 @@ static int evm_aic3x_init(struct snd_soc
- 	return 0;
- }
- 
-+static int evm_aic32x4_init(struct snd_soc_pcm_runtime *rtd)
++static int gisbc_hw_params(struct snd_pcm_substream *substream,
++			 struct snd_pcm_hw_params *params)
 +{
-+	struct snd_soc_dai *cpu_dai = rtd->cpu_dai;
++	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 +	struct snd_soc_dai *codec_dai = rtd->codec_dai;
-+
++	struct snd_soc_dai *cpu_dai = rtd->cpu_dai;
 +	int ret = 0;
-+	unsigned sysclk;
-+
-+	printk(KERN_ERR "========== evm ========== davinci-evm.c: evm_aic32x4_init\n");
-+
-+	/* On AM335X, CODEC gets MCLK from external Xtal (12MHz). */
-+	if (machine_is_am335xevm())
-+		sysclk = 24000000;
-+	else
-+		return -EINVAL;
 +
 +	/* set codec DAI configuration */
 +	ret = snd_soc_dai_set_fmt(codec_dai, GISBC_AUDIO_FORMAT);
@@ -74,169 +56,90 @@ diff -rupN linux-orig/sound/soc/davinci/davinci-evm.c linux-gisbc/sound/soc/davi
 +		return ret;
 +
 +	/* set the codec system clock */
-+	ret = snd_soc_dai_set_sysclk(codec_dai, 0, sysclk, SND_SOC_CLOCK_IN);
++	ret = snd_soc_dai_set_sysclk(codec_dai, 0, SYSCLK, SND_SOC_CLOCK_OUT);
 +	if (ret < 0)
 +		return ret;
 +
 +	return 0;
 +}
 +
- /* davinci-evm digital audio interface glue - connects codec <--> CPU */
- static struct snd_soc_dai_link dm6446_evm_dai = {
- 	.name = "TLV320AIC3X",
-@@ -242,13 +282,14 @@ static struct snd_soc_dai_link da850_evm
- };
- 
- static struct snd_soc_dai_link am335x_evm_dai = {
--	.name = "TLV320AIC3X",
--	.stream_name = "AIC3X",
++static struct snd_soc_ops gisbc_ops = {
++	.hw_params = gisbc_hw_params,
++};
++
++static int gisbc_aic32x4_init(struct snd_soc_pcm_runtime *rtd)
++{
++	return 0;
++}
++
++static struct snd_soc_dai_link am335x_gisbc_dai = {
 +	.name = "tlv320aic32x4",
 +	.stream_name = "TLV320AIC32X4",
- 	.cpu_dai_name = "davinci-mcasp.0",
--	.codec_dai_name = "tlv320aic3x-hifi",
--	.codec_name = "tlv320aic3x-codec.3-001b",
++	.cpu_dai_name = "davinci-mcasp.0",
 +	.codec_dai_name = "tlv320aic32x4-hifi",
-+//	.codec_name = "tlv320aic3x-codec.3-001b",
 +	.codec_name = "tlv320aic32x4.1-0018",
- 	.platform_name = "davinci-pcm-audio",
--	.init = evm_aic3x_init,
-+	.init = evm_aic32x4_init,
- 	.ops = &evm_ops,
- };
- 
-@@ -306,6 +347,8 @@ static int __init evm_init(void)
- 	int index;
- 	int ret;
- 
-+	printk(KERN_ERR "========== evm ========== davinci-evm.c: evm_init\n");
++	.platform_name = "davinci-pcm-audio",
++	.init = gisbc_aic32x4_init,
++	.ops = &gisbc_ops,
++};
 +
- 	if (machine_is_davinci_evm()) {
- 		evm_snd_dev_data = &dm6446_snd_soc_card_evm;
- 		index = 0;
-@@ -325,6 +368,8 @@ static int __init evm_init(void)
- 		evm_snd_dev_data = &da850_snd_soc_card;
- 		index = 0;
- 	} else if (machine_is_am335xevm()) {
-+		printk(KERN_ERR "========== evm ========== davinci-evm.c: evm_init -> machine_is_am335xevm\n");
++static struct snd_soc_card am335x_snd_soc_card = {
++	.name = "AM335X GISBC",
++	.dai_link = &am335x_gisbc_dai,
++	.num_links = 1,
++};
 +
- 		evm_snd_dev_data = &am335x_snd_soc_card;
- 		index = 0;
- 	} else
-@@ -332,13 +377,16 @@ static int __init evm_init(void)
- 
- 	evm_snd_device = platform_device_alloc("soc-audio", index);
- 	if (!evm_snd_device) {
-+		printk(KERN_ERR "========== evm ========== davinci-evm.c: ENOMEM\n");
- 		return -ENOMEM;
- 	}
- 
- 	platform_set_drvdata(evm_snd_device, evm_snd_dev_data);
- 	ret = platform_device_add(evm_snd_device);
--	if (ret)
-+	if (ret) {
-+		pr_err("========== evm ========== davinci-evm.c: ret=%d", ret);
- 		platform_device_put(evm_snd_device);
++static struct platform_device *gisbc_snd_device;
++
++static int __init gisbc_init(void)
++{
++	int ret;
++
++	if (!machine_is_am335xevm())
++		return -EINVAL;
++
++	gisbc_snd_device = platform_device_alloc("soc-audio", 0);
++	if (!gisbc_snd_device) {
++		return -ENOMEM;
 +	}
- 
- 	return ret;
- }
++
++	platform_set_drvdata(gisbc_snd_device, &am335x_snd_soc_card);
++	ret = platform_device_add(gisbc_snd_device);
++	if (ret) {
++		platform_device_put(gisbc_snd_device);
++	}
++
++	return ret;
++}
++
++static void __exit gisbc_exit(void)
++{
++	platform_device_unregister(gisbc_snd_device);
++}
++
++module_init(gisbc_init);
++module_exit(gisbc_exit);
++
++MODULE_AUTHOR("Marcin Niestroj");
++MODULE_DESCRIPTION("Grinn GISBC ASoC driver");
++MODULE_LICENSE("GPL");
 diff -rupN linux-orig/sound/soc/davinci/davinci-mcasp.c linux-gisbc/sound/soc/davinci/davinci-mcasp.c
 --- linux-orig/sound/soc/davinci/davinci-mcasp.c	2012-11-09 16:16:08.000000000 +0100
-+++ linux-gisbc/sound/soc/davinci/davinci-mcasp.c	2013-01-02 09:51:46.521488674 +0100
-@@ -334,7 +334,7 @@ static inline void mcasp_set_ctl_reg(voi
- 	}
- 
- 	if (i == 1000 && ((mcasp_get_reg(regs) & val) != val))
--		printk(KERN_ERR "GBLCTL write error\n");
-+		printk(KERN_ERR "========= mcasp ========= GBLCTL write error\n");
- }
- 
- static void mcasp_start_rx(struct davinci_audio_dev *dev)
-@@ -459,6 +459,10 @@ static int davinci_mcasp_set_dai_fmt(str
- 	struct davinci_audio_dev *dev = snd_soc_dai_get_drvdata(cpu_dai);
- 	void __iomem *base = dev->base;
- 
-+	printk(KERN_ERR "========= mcasp ========= davinci-mcasp.c: davinci_mcasp_set_dai_fmt\n");
-+
-+	DAVINCI_MCASP_RXFMCTL_REG;
-+
- 	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
- 	case SND_SOC_DAIFMT_CBS_CFS:
- 		/* codec is clock and frame slave */
-@@ -494,6 +498,9 @@ static int davinci_mcasp_set_dai_fmt(str
++++ linux-gisbc/sound/soc/davinci/davinci-mcasp.c	2013-01-04 11:59:41.288550701 +0100
+@@ -494,6 +494,10 @@ static int davinci_mcasp_set_dai_fmt(str
  
  		mcasp_clr_bits(base + DAVINCI_MCASP_PDIR_REG,
  				ACLKX | AHCLKX | AFSX | ACLKR | AHCLKR | AFSR);
-+		// Zmiana
++
++		/* Set AHCLKX pin out - to provide MCLK for codec */
 +		mcasp_set_bits(base + DAVINCI_MCASP_PDIR_REG,
 +				AHCLKX);
  		break;
  
  	default:
-@@ -546,6 +553,8 @@ static int davinci_config_channel_size(s
- 	u32 fmt = 0;
- 	u32 mask, rotate;
- 
-+	pr_err("========= mcasp ========= davinci-mcasp.c: davinci_config_channel_size %d\n", channel_size);
-+
- 	switch (channel_size) {
- 	case DAVINCI_AUDIO_WORD_8:
- 		fmt = 0x03;
-@@ -685,6 +694,8 @@ static void davinci_hw_param(struct davi
- 	int i, active_slots;
- 	u32 mask = 0;
- 
-+	printk(KERN_ERR "========= mcasp ========= davinci-mcasp.c: davinci_hw_param, stream=%d\n", stream);
-+
- 	active_slots = (dev->tdm_slots > 31) ? 32 : dev->tdm_slots;
- 	for (i = 0; i < active_slots; i++)
- 		mask |= (1 << i);
-@@ -697,13 +708,13 @@ static void davinci_hw_param(struct davi
- 		mcasp_set_bits(dev->base + DAVINCI_MCASP_AHCLKXCTL_REG,
- 				AHCLKXE);
- 		mcasp_set_reg(dev->base + DAVINCI_MCASP_TXTDM_REG, mask);
--		mcasp_set_bits(dev->base + DAVINCI_MCASP_TXFMT_REG, TXORD);
-+		mcasp_set_bits(dev->base + DAVINCI_MCASP_TXFMT_REG, TXORD);				// MSB first
- 
- 		if ((dev->tdm_slots >= 2) && (dev->tdm_slots <= 32))
- 			mcasp_mod_bits(dev->base + DAVINCI_MCASP_TXFMCTL_REG,
- 					FSXMOD(dev->tdm_slots), FSXMOD(0x1FF));
- 		else
--			printk(KERN_ERR "playback tdm slot %d not supported\n",
-+			printk(KERN_ERR "========= mcasp ========= playback tdm slot %d not supported\n",
- 				dev->tdm_slots);
- 
- 		mcasp_clr_bits(dev->base + DAVINCI_MCASP_TXFMCTL_REG, FSXDUR);
-@@ -719,7 +730,7 @@ static void davinci_hw_param(struct davi
- 			mcasp_mod_bits(dev->base + DAVINCI_MCASP_RXFMCTL_REG,
- 					FSRMOD(dev->tdm_slots), FSRMOD(0x1FF));
- 		else
--			printk(KERN_ERR "capture tdm slot %d not supported\n",
-+			printk(KERN_ERR "========= mcasp ========= capture tdm slot %d not supported\n",
- 				dev->tdm_slots);
- 
- 		mcasp_clr_bits(dev->base + DAVINCI_MCASP_RXFMCTL_REG, FSRDUR);
-@@ -770,6 +781,8 @@ static int davinci_mcasp_hw_params(struc
- 	int word_length;
- 	u8 fifo_level;
- 
-+	pr_err("========= mcasp ========= davinci-mcasp.c: davinci_mcasp_hw_params\n");
-+
- 	davinci_hw_common_param(dev, substream->stream);
- 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
- 		fifo_level = dev->txnumevt;
-@@ -801,7 +814,7 @@ static int davinci_mcasp_hw_params(struc
- 		break;
- 
- 	default:
--		printk(KERN_WARNING "davinci-mcasp: unsupported PCM format");
-+		printk(KERN_WARNING "========= mcasp ========= davinci-mcasp: unsupported PCM format");
- 		return -EINVAL;
- 	}
- 
 diff -rupN linux-orig/sound/soc/davinci/Kconfig linux-gisbc/sound/soc/davinci/Kconfig
 --- linux-orig/sound/soc/davinci/Kconfig	2012-11-09 16:16:08.000000000 +0100
-+++ linux-gisbc/sound/soc/davinci/Kconfig	2012-12-17 14:44:51.107030049 +0100
++++ linux-gisbc/sound/soc/davinci/Kconfig	2013-01-04 11:59:41.280550699 +0100
 @@ -41,6 +41,14 @@ config  SND_AM335X_SOC_EVM
  	help
  	  Say Y if you want to add support for SoC audio on
@@ -248,16 +151,24 @@ diff -rupN linux-orig/sound/soc/davinci/Kconfig linux-gisbc/sound/soc/davinci/Kc
 +	select SND_DAVINCI_SOC_MCASP
 +	select SND_SOC_TLV320AIC32X4
 +	help
-+	  Say Y if you want to add support for SoC audio in GISBC
++	  Say Y if you want to add support for SoC audio on GISBC
  
  choice
  	prompt "DM365 codec select"
 diff -rupN linux-orig/sound/soc/davinci/Makefile linux-gisbc/sound/soc/davinci/Makefile
 --- linux-orig/sound/soc/davinci/Makefile	2012-11-09 16:16:08.000000000 +0100
-+++ linux-gisbc/sound/soc/davinci/Makefile	2012-12-17 12:48:40.478835620 +0100
-@@ -19,4 +19,5 @@ obj-$(CONFIG_SND_DM6467_SOC_EVM) += snd-
++++ linux-gisbc/sound/soc/davinci/Makefile	2013-01-04 11:59:41.288550701 +0100
+@@ -12,6 +12,7 @@ obj-$(CONFIG_SND_DAVINCI_SOC_VCIF) += sn
+ 
+ # DAVINCI Machine Support
+ snd-soc-evm-objs := davinci-evm.o
++snd-soc-gisbc-objs := davinci-gisbc.o
+ snd-soc-sffsdr-objs := davinci-sffsdr.o
+ 
+ obj-$(CONFIG_SND_DAVINCI_SOC_EVM) += snd-soc-evm.o
+@@ -19,4 +20,5 @@ obj-$(CONFIG_SND_DM6467_SOC_EVM) += snd-
  obj-$(CONFIG_SND_DA830_SOC_EVM) += snd-soc-evm.o
  obj-$(CONFIG_SND_DA850_SOC_EVM) += snd-soc-evm.o
  obj-$(CONFIG_SND_AM335X_SOC_EVM) += snd-soc-evm.o
-+obj-$(CONFIG_SND_AM335X_SOC_GISBC) += snd-soc-evm.o
++obj-$(CONFIG_SND_AM335X_SOC_GISBC) += snd-soc-gisbc.o
  obj-$(CONFIG_SND_DAVINCI_SOC_SFFSDR) += snd-soc-sffsdr.o

@@ -1,0 +1,11 @@
+--- linux-orig/include/sound/tlv320aic32x4.h	2012-11-09 16:16:08.000000000 +0100
++++ linux-gisbc/include/sound/tlv320aic32x4.h	2013-01-04 11:59:41.268550700 +0100
+@@ -22,6 +22,8 @@
+ #define AIC32X4_MICPGA_ROUTE_LMIC_IN2R_10K	0x00000001
+ #define AIC32X4_MICPGA_ROUTE_RMIC_IN1L_10K	0x00000002
+ 
++#define AIC32X4_MICPGA_ROUTE_NEG_CM1_10K   0x00000004
++
+ struct aic32x4_pdata {
+ 	u32 power_cfg;
+ 	u32 micpga_routing;

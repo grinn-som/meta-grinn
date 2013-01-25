@@ -1954,4 +1954,5 @@ PATCHES_OVER_PSP = " \
 	file://gisbc/include-sound-tlv320aic32x4.h.patch \
 	file://gisbc/sound-soc-codecs.patch \
 	file://gisbc/sound-soc-davinci.patch \
+	file://gisbc/rs_485.patch \
 "

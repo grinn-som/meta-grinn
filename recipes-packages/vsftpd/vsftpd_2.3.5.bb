@@ -3,6 +3,7 @@ HOMEPAGE="https://security.appspot.com/vsftpd.html"
 SECTION = "network"
 LICENSE = "GPLv2"
 LIC_FILES_CHKSUM = "file://COPYING;md5=a6067ad950b28336613aed9dd47b1271"
+PR = "r1"
 
 DEPENDS = "libcap openssl"
 
@@ -40,7 +41,7 @@ INITSCRIPT_NAME_${PN} = "vsftpd"
 INITSCRIPT_PARAMS_${PN} = "defaults 80"
 
 USERADD_PACKAGES = "${PN}"
-USERADD_PARAM_${PN} = "--system --home-dir /srv/ftp -g user \
+USERADD_PARAM_${PN} = "--system --home-dir /srv/www/ftp -g user \
                        --shell /bin/false user "
 GROUPADD_PARAM_${PN} = "-r user"
                      

@@ -1,10 +1,11 @@
 DESCRIPTION = "A simple, small, portable, fast, and secure HTTP server."
 LICENSE = "FreeBSD"
 HOMEPAGE = "http://www.acme.com/software/thttpd/"
-PR ="r9"
+PR ="r10"
 
 SRC_URI = "http://www.acme.com/software/thttpd/${P}.tar.gz \
 	   file://install.patch \
+           file://executable_check_disable.patch \
 	   file://acinclude.m4 \
 	   file://init \
 	   file://htpasswd_shared.diff \

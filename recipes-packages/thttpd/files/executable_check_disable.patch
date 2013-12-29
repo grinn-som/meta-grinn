@@ -1,0 +1,11 @@
+--- thttpd-2.25b-orig/libhttpd.c	2013-05-08 11:37:00.543312334 +0200
++++ thttpd-2.25b/libhttpd.c	2013-05-08 11:35:26.064659204 +0200
+@@ -3791,7 +3791,7 @@ really_start_request( httpd_conn* hc, st
+     ** trying to either serve or run a non-CGI file as CGI.   Either case
+     ** is prohibited.
+     */
+-    if ( hc->sb.st_mode & S_IXOTH )
++    if ( 0 && (hc->sb.st_mode & S_IXOTH) )
+ 	{
+ 	syslog(
+ 	    LOG_NOTICE, "%.80s URL \"%.80s\" is executable but isn't CGI",

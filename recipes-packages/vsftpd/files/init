@@ -2,8 +2,8 @@
 DAEMON=/usr/sbin/vsftpd
 NAME=vsftpd
 DESC="FTP Server"
-ARGS=""
-FTPDIR=/var/lib/ftp
+ARGS="/etc/vsftpd.conf"
+FTPDIR=/srv/www/ftp
 
 test -f $DAEMON || exit 0
 

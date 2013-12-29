@@ -1,0 +1,164 @@
+diff -rupN linux-orig/arch/arm/mach-omap2/board-am335xevm.c linux-gisbc/arch/arm/mach-omap2/board-am335xevm.c
+--- linux-orig/arch/arm/mach-omap2/board-am335xevm.c	2013-10-12 15:49:40.000000000 +0200
++++ linux-gisbc/arch/arm/mach-omap2/board-am335xevm.c	2013-11-15 21:47:44.604449652 +0100
+@@ -4164,9 +4164,6 @@ static void __init am335x_evm_map_io(voi
+ }
+ 
+ // ===================================================================
+-// ===================================================================
+-
+-// ===================================================================
+ // ------------------------------- DVI -------------------------------
+ 
+ static const struct display_panel gisbc_dvi_panel = {
+@@ -4250,22 +4247,17 @@ static struct pinmux_config chilisom_evb
+ };
+ 
+ static struct pinmux_config chilisom_evb_uart4_pin_mux[] = {
+-	{"uart0_rtsn.uart0_rtsn", OMAP_MUX_MODE1 | AM33XX_PIN_OUTPUT},		// To jest do sprawdzenia - nie ma tego w pliku mux33xx.c	   / UART0_RTS
+-	{"uart0_ctsn.uart0_ctsn", OMAP_MUX_MODE1 | AM33XX_PIN_INPUT_PULLUP},		// To jest do sprawdzenia - nie ma tego w pliku mux33xx.c	/UART0_CTS
+-	{"lcd_data12.lcd_data12", OMAP_MUX_MODE6 | AM33XX_PIN_INPUT_PULLUP},		// To jest do sprawdzenia - nie ma tego w pliku mux33xx.c
+-	{"lcd_data13.lcd_data13", OMAP_MUX_MODE6 | AM33XX_PIN_OUTPUT},		// To jest do sprawdzenia - nie ma tego w pliku mux33xx.c
++	{"uart0_rtsn.uart0_rtsn", OMAP_MUX_MODE1 | AM33XX_PIN_OUTPUT},
++	{"uart0_ctsn.uart0_ctsn", OMAP_MUX_MODE1 | AM33XX_PIN_INPUT_PULLUP},
+ 	{NULL, 0},
+ };
+ 
+-#ifdef CONFIG_AM335XEVM_UART
+-//piny do uart5 (rs-485)
+ static struct pinmux_config chilisom_evb_uart5_pin_mux[] = {
+ 	{"rmii1_refclk.rmii1_refclk", OMAP_MUX_MODE3 | AM33XX_PIN_OUTPUT},
+ 	{"mii1_col.mii1_col", OMAP_MUX_MODE3 | AM33XX_PIN_INPUT_PULLUP},
+ 	{"mii1_rxerr.mii1_rxerr", OMAP_MUX_MODE5 | AM33XX_PIN_OUTPUT},
+ 	{NULL, 0},
+ };
+-#endif /*CONFIG_AM335XEVM_UART*/
+ 
+ static void chilisom_evb_uart_all_init(int evm_id, int profile)
+ {
+@@ -4276,7 +4268,7 @@ static void chilisom_evb_uart_all_init(i
+ 	//setup_pin_mux(chilisom_evb_uart1_pin_mux);
+ 	//setup_pin_mux(chilisom_evb_uart2_pin_mux);
+ 	//setup_pin_mux(chilisom_evb_uart3_pin_mux);
+-	//setup_pin_mux(chilisom_evb_uart4_pin_mux);
++	setup_pin_mux(chilisom_evb_uart4_pin_mux);
+ 	setup_pin_mux(chilisom_evb_uart5_pin_mux);
+ #endif /*CONFIG_AM335XEVM_UART*/
+ 	return;
+@@ -4843,23 +4835,100 @@ static int gisbc_phy_fixup(struct phy_de
+ // ===================================================================
+ 
+ // ===================================================================
+-// ----------------------------- GISBC -------------------------------
++// ------------------------------ DCAN0 GISBC ------------------------
++static struct pinmux_config gisbc_d_can0_pin_mux[] = {
++	{"uart1_ctsn.d_can0_tx", OMAP_MUX_MODE2 | AM33XX_PIN_OUTPUT},
++	{"uart1_rtsn.d_can0_rx", OMAP_MUX_MODE2 | AM33XX_PIN_INPUT_PULLUP},
++	{NULL, 0},
++};
++
++static void gisbc_d_can0_init(int evm_id, int profile)
++{
++	setup_pin_mux(gisbc_d_can0_pin_mux);
++	am33xx_d_can_init(0);
++	return;
++}
++// ------------------------------ DCAN0 GISBC ------------------------
++// ===================================================================
++
++// ===================================================================
++// ------------------------------ DCAN1 GISBC ------------------------
++static struct pinmux_config gisbc_d_can1_pin_mux[] = {
++	{"uart1_rxd.d_can1_tx", OMAP_MUX_MODE2 | AM33XX_PIN_OUTPUT },
++	{"uart1_txd.d_can1_rx", OMAP_MUX_MODE2 | AM33XX_PIN_INPUT_PULLUP },
++	{NULL, 0},
++};
++
++static void gisbc_d_can1_init(int evm_id, int profile)
++{
++	setup_pin_mux(gisbc_d_can1_pin_mux);
++	am33xx_d_can_init(1);
++	return;
++}
++// ------------------------------ DCAN1 GISBC ------------------------
++// ===================================================================
++
++// ===================================================================
++// ------------------ ANALOG INPUTS TSC DRIVER GISBC -----------------
++static struct tsc_data gisbc_adc_data  = {
++	.mode = TI_TSCADC_GENMODE,
++};
++
++static void gisbc_tsc_init(int evm_id, int profile)
++{
++	int err;
++	setup_pin_mux(tsc_pin_mux);
++	err = am33xx_register_tsc(&gisbc_adc_data);
++	if (err)
++		pr_err("failed to register analog inputs\n");
++}
++// ------------------ ANALOG INPUTS TSC DRIVER GISBC -----------------
++// ===================================================================
+ 
+-/* GISBC */
++// ===================================================================
++// ------------------------------ GPIO GISBC -------------------------
++static struct pinmux_config gisbc_gpio_pin_mux[] = {
++	{"spi0_sclk.gpio0_2",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"spi0_d0.gpio0_3",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"spi0_d1.gpio0_4",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"spi0_cs0.gpio0_5",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"spi0_cs1.gpio0_6",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"ecap0_in_pwm0_out.gpio0_7",	OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"xdma_event_intr0.gpio0_19",	OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"xdma_event_intr1.gpio0_20",	OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"mii1_crs.gpio3_1",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"mcasp0_ahclkr.gpio3_17",	OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"mcasp0_aclkr.gpio3_18",	OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"mcasp0_fsr.gpio3_19",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{NULL, 0},
++};
++
++static void gisbc_gpio_init(int evm_id, int profile )
++{
++	setup_pin_mux(gisbc_gpio_pin_mux);
++}
++// ------------------------------ GPIO GISBC -------------------------
++// ===================================================================
++
++// ===================================================================
++// ----------------------------- GISBC CONFIG ------------------------
+ static struct evm_dev_cfg gisbc_dev_cfg[] = {
+ 	{gisbc_rgmii1_init,	DEV_ON_BASEBOARD, PROFILE_NONE},
+ 	{gisbc_rgmii2_init,	DEV_ON_BASEBOARD, PROFILE_NONE},
+-	{usb0_init,	DEV_ON_BASEBOARD, PROFILE_NONE},
+-	{usb1_init,	DEV_ON_BASEBOARD, PROFILE_NONE},
+-	{gisbc_nand_init, DEV_ON_BASEBOARD, PROFILE_NONE},
++	{usb0_init,		DEV_ON_BASEBOARD, PROFILE_NONE},
++	{usb1_init,		DEV_ON_BASEBOARD, PROFILE_NONE},
++	{gisbc_nand_init,	DEV_ON_BASEBOARD, PROFILE_NONE},
+ 	{gisbc_mmc0_init,	DEV_ON_BASEBOARD, PROFILE_NONE},
++	{gisbc_d_can0_init,	DEV_ON_BASEBOARD, PROFILE_NONE},
++	{gisbc_d_can1_init,	DEV_ON_BASEBOARD, PROFILE_NONE},
++	{gisbc_tsc_init,	DEV_ON_BASEBOARD, PROFILE_NONE},
++	{gisbc_gpio_init,	DEV_ON_BASEBOARD, PROFILE_NONE},
+ #ifdef CONFIG_AM335XEVM_UART
+  	{chilisom_evb_uart_all_init,	DEV_ON_BASEBOARD, PROFILE_NONE},
+ #endif
+ 	{NULL, 0, 0},
+ };
+ 
+-/* GISBC */
+ static void setup_gisbc(void)
+ {
+ 	pr_info("The board is a AM335x GISBC.\n");
+@@ -4913,8 +4982,7 @@ static void __init gisbc_init(void)
+ 	if (clk_add_alias("sgx_ck", NULL, "gfx_fclk", NULL))
+ 		pr_warn("failed to create an alias: gfx_fclk --> sgx_ck\n");
+ }
+-
+-// ----------------------------- GISBC -------------------------------
++// ----------------------------- GISBC CONFIG ------------------------
+ // ===================================================================
+ 
+ // ===================================================================

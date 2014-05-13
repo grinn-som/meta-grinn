@@ -1,0 +1,805 @@
+diff -rupN orig/arch/arm/mach-omap2/board-am335xevm.c mod/arch/arm/mach-omap2/board-am335xevm.c
+--- orig/arch/arm/mach-omap2/board-am335xevm.c	2014-04-15 19:06:00.000000000 +0200
++++ mod/arch/arm/mach-omap2/board-am335xevm.c	2014-05-05 21:09:05.287003578 +0200
+@@ -70,6 +70,10 @@
+ #include <media/soc_camera.h>
+ #include <media/mt9t112.h>
+ 
++#include <linux/rtc.h>
++#include <linux/bcd.h>
++#include <sound/tlv320aic32x4.h>
++
+ #include "board-flash.h"
+ #include "cpuidle33xx.h"
+ #include "mux.h"
+@@ -4159,23 +4163,737 @@ static void __init am335x_evm_map_io(voi
+ 	omapam33xx_map_common_io();
+ }
+ 
++// -----------------------------  UARTs ------------------------------
++static struct pinmux_config hmi_uart1_pin_mux[] = {
++	{"uart1_txd.uart1_txd", OMAP_MUX_MODE0},
++	{"uart1_rxd.uart1_rxd", OMAP_MUX_MODE0 | AM33XX_INPUT_EN},
++	{"uart1_rtsn.uart1_rtsn", OMAP_MUX_MODE0},
++	{NULL, 0},
++};
++
++static struct pinmux_config hmi_uart4_pin_mux[] = {
++	{"uart0_rtsn.uart0_rtsn", OMAP_MUX_MODE1 | AM33XX_PULL_ENBL}, /*uart4_txd*/
++	{"uart0_ctsn.uart0_ctsn", OMAP_MUX_MODE1 | AM33XX_PIN_INPUT_PULLUP}, /*uart4_rxd*/
++	{NULL, 0},
++};
++
++static void hmi_uart_init(int evm_id, int profile)
++{
++	pr_info("Configure UARTs\n");
++	setup_pin_mux(hmi_uart1_pin_mux);
++	setup_pin_mux(hmi_uart4_pin_mux);
++	return;
++}
++
++// ------------------------------ MCASP ------------------------------
++static u8 hmi_am335x_iis_serializer_direction[] = {
++	TX_MODE,	RX_MODE,	INACTIVE_MODE,	INACTIVE_MODE,
++	INACTIVE_MODE,	INACTIVE_MODE,	INACTIVE_MODE,	INACTIVE_MODE,
++	INACTIVE_MODE,	INACTIVE_MODE,	INACTIVE_MODE,	INACTIVE_MODE,
++	INACTIVE_MODE,	INACTIVE_MODE,	INACTIVE_MODE,	INACTIVE_MODE,
++};
++
++static struct snd_platform_data hmi_snd_data = {
++	.tx_dma_offset	= 0x46000000,	/* McASP0*/
++	.rx_dma_offset	= 0x46000000,
++	.op_mode	= DAVINCI_MCASP_IIS_MODE,
++	.num_serializer	= ARRAY_SIZE(hmi_am335x_iis_serializer_direction),
++	.tdm_slots	= 2,
++	.serial_dir	= hmi_am335x_iis_serializer_direction,
++	.asp_chan_q	= EVENTQ_2,
++	.version	= MCASP_VERSION_3,
++	.txnumevt	= 1,
++	.rxnumevt	= 1,
++};
++
++static struct pinmux_config hmi_mcasp0_pin_mux[] = {
++	{"mcasp0_aclkx.mcasp0_aclkx", OMAP_MUX_MODE0 | AM33XX_PIN_INPUT_PULLDOWN},	/* BCLK */
++	{"mcasp0_fsx.mcasp0_fsx", OMAP_MUX_MODE0 | AM33XX_PIN_INPUT_PULLDOWN},		/* WCLK */
++	{"mcasp0_axr0.mcasp0_axr0", OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT},		/* DOUT */
++	{"mcasp0_axr1.mcasp0_axr1", OMAP_MUX_MODE0 | AM33XX_PIN_INPUT_PULLDOWN},	/* DIN */
++	{"mcasp0_ahclkx.mcasp0_ahclkx", OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT}, 		/* MCLK */
++	{NULL, 0},
++};
++
++static int __init hmi_am335x_register_mcasp(struct snd_platform_data *pdata,
++								int ctrl_nr)
++{
++	int l;
++	struct omap_hwmod *oh;
++	struct platform_device *pdev;
++	char oh_name[12];
++	char *dev_name = "davinci-mcasp";
++
++	pr_info("hmi_am335x_register_mcasp execute;\n");
++
++	l = snprintf(oh_name, 12, "mcasp%d", ctrl_nr);
++
++	oh = omap_hwmod_lookup(oh_name);
++	if (!oh) {
++		pr_err("could not look up %s\n", oh_name);
++		return -ENODEV;
++	}
++
++	pdev = omap_device_build(dev_name, ctrl_nr, oh, pdata,
++			sizeof(struct snd_platform_data), NULL, 0, 0);
++	WARN(IS_ERR(pdev), "Can't build omap_device for %s:%s.\n",
++			dev_name, oh->name);
++	return IS_ERR(pdev) ? PTR_ERR(pdev) : 0;
++}
++
++static void hmi_mcasp0_init(int evm_id, int profile)
++{
++	printk("mcasp0 init\n");
++	setup_pin_mux(hmi_mcasp0_pin_mux);
++	hmi_am335x_register_mcasp(&hmi_snd_data, 0);
++	return;
++}
++
++// ------------------------------ MMC0 -------------------------------
++static struct omap2_hsmmc_info hmi_mmc[] __initdata = {
++	{
++		.mmc            = 1,
++		.caps           = MMC_CAP_4_BIT_DATA,
++		.gpio_cd        = -EINVAL, //GPIO_TO_PIN(0, 6),
++		.gpio_wp        = -EINVAL,
++		.ocr_mask       = MMC_VDD_32_33 | MMC_VDD_33_34, /* 3V3 */
++	},
++	{
++		.mmc            = 0,
++	},
++	{
++		.mmc            = 0,
++	},
++	{}      /* Terminator */
++};
++
++static struct pinmux_config hmi_mmc0_pin_mux[] = {
++	{"mmc0_dat3.mmc0_dat3",	OMAP_MUX_MODE0 | AM33XX_PIN_INPUT_PULLUP},
++	{"mmc0_dat2.mmc0_dat2",	OMAP_MUX_MODE0 | AM33XX_PIN_INPUT_PULLUP},
++	{"mmc0_dat1.mmc0_dat1",	OMAP_MUX_MODE0 | AM33XX_PIN_INPUT_PULLUP},
++	{"mmc0_dat0.mmc0_dat0",	OMAP_MUX_MODE0 | AM33XX_PIN_INPUT_PULLUP},
++	{"mmc0_clk.mmc0_clk",	OMAP_MUX_MODE0 | AM33XX_PIN_INPUT_PULLUP},
++	{"mmc0_cmd.mmc0_cmd",	OMAP_MUX_MODE0 | AM33XX_PIN_INPUT_PULLUP},
++	{"spi0_cs1.gpio0_6",  OMAP_MUX_MODE7 | AM33XX_PIN_INPUT_PULLUP},
++	{NULL, 0},
++};
++
++static void hmi_mmc_init(int evm_id, int profile)
++{
++	setup_pin_mux(hmi_mmc0_pin_mux);
++	omap2_hsmmc_init(hmi_mmc);
++	return;
++}
++
++// ------------------------------ NAND -------------------------------
++/* NAND partition information */
++static struct mtd_partition hmi_nand_partitions[] = {
++/* All the partition sizes are listed in terms of NAND block size */
++	{
++		.name           = "SPL",
++		.offset         = 0,			/* Offset = 0x0 */
++		.size           = SZ_128K,
++	},
++	{
++		.name           = "SPL.backup1",
++		.offset         = MTDPART_OFS_APPEND,	/* Offset = 0x20000 */
++		.size           = SZ_128K,
++	},
++	{
++		.name           = "SPL.backup2",
++		.offset         = MTDPART_OFS_APPEND,	/* Offset = 0x40000 */
++		.size           = SZ_128K,
++	},
++	{
++		.name           = "SPL.backup3",
++		.offset         = MTDPART_OFS_APPEND,	/* Offset = 0x60000 */
++		.size           = SZ_128K,
++	},
++	{
++		.name           = "U-Boot",
++		.offset         = MTDPART_OFS_APPEND,   /* Offset = 0x80000 */
++		.size           = 15 * SZ_128K,
++	},
++	{
++		.name           = "U-Boot Env",
++		.offset         = MTDPART_OFS_APPEND,   /* Offset = 0x260000 */
++		.size           = 1 * SZ_128K,
++	},
++	{
++		.name           = "Kernel",
++		.offset         = MTDPART_OFS_APPEND,   /* Offset = 0x280000 */
++		.size           = 40 * SZ_128K,
++	},
++	{
++		.name           = "Config",
++		.offset         = MTDPART_OFS_APPEND,   /* Offset = 0x780000 */
++		.size           = 64 * SZ_128K,
++	},
++	{
++		.name           = "File System",
++		.offset         = MTDPART_OFS_APPEND,   /* Offset = 0xF80000 */
++		.size           = MTDPART_SIZ_FULL,
++	},
++};
++
++static void hmi_nand_init(int evm_id, int profile)
++{
++	struct omap_nand_platform_data *pdata;
++	struct gpmc_devices_info gpmc_device[2] = {
++		{ NULL, 0 },
++		{ NULL, 0 },
++	};
++
++	setup_pin_mux(nand_pin_mux);
++	pdata = omap_nand_init(hmi_nand_partitions,
++		ARRAY_SIZE(hmi_nand_partitions), 0, 0,
++		&am335x_nand_timings);
++	if (!pdata)
++		return;
++	pdata->ecc_opt = OMAP_ECC_BCH8_CODE_HW;
++	pdata->elm_used = true;
++	gpmc_device[0].pdata = pdata;
++	gpmc_device[0].flag = GPMC_DEVICE_NAND;
++
++	omap_init_gpmc(gpmc_device, sizeof(gpmc_device));
++	omap_init_elm();
++}
++
++// ------------------------------ RTC --------------------------------
++#define OMAP_RTC_TIME_SEC_REG			0x00
++#define OMAP_RTC_TIME_MIN_REG			0x04
++#define OMAP_RTC_TIME_HOUR_REG			0x08
++#define OMAP_RTC_TIME_DAY_REG			0x0c
++#define OMAP_RTC_TIME_MON_REG			0x10
++#define OMAP_RTC_TIME_YEAR_REG			0x14
++
++#define OMAP_RTC_STATUS_REG			0x44
++#define OMAP_RTC_STATUS_BUSY_EN			BIT(0)
++
++#define OMAP_RTC_INTERRUPT_REG			0x48
++#define OMAP_RTC_INT_ALM2_EN			BIT(4)
++
++#define OMAP_RTC_ALARM2_SEC_REG			0x80
++#define OMAP_RTC_ALARM2_MIN_REG			0x84
++#define OMAP_RTC_ALARM2_HOUR_REG		0x88
++#define OMAP_RTC_ALARM2_DAY_REG			0x8c
++#define OMAP_RTC_ALARM2_MON_REG			0x90
++#define OMAP_RTC_ALARM2_YEAR_REG		0x94
++
++#define OMAP_RTC_PMIC_REG			0x98
++#define OMAP_RTC_PWR_EN_EN			BIT(16)
++
++void hmi_rtc_poweroff(void)
++{
++	void __iomem *base;
++	int reg_val;
++	struct rtc_time tm;
++
++	base = ioremap(AM33XX_RTC_BASE, SZ_4K);
++
++	if (WARN_ON(!base))
++			return;
++
++	/* Set the Power Enable PMIC*/
++	reg_val = readl(base +  OMAP_RTC_PMIC_REG);
++	writel(reg_val | OMAP_RTC_PWR_EN_EN, base + OMAP_RTC_PMIC_REG);
++
++	/* Rather than play the roll over game, just wait an extra second */
++	do {
++			/* Wait unit the busy bit is cleared.  Max 15 uS */
++			while(readl(base + OMAP_RTC_STATUS_REG) & OMAP_RTC_STATUS_BUSY_EN) {
++			}
++
++			/* Read the current time, convert from binary */
++			tm.tm_sec = bcd2bin(readb(base + OMAP_RTC_TIME_SEC_REG));
++			tm.tm_min = bcd2bin(readb(base + OMAP_RTC_TIME_MIN_REG));
++			tm.tm_hour = bcd2bin(readb(base + OMAP_RTC_TIME_HOUR_REG));
++			tm.tm_mday = bcd2bin(readb(base + OMAP_RTC_TIME_DAY_REG));
++			tm.tm_mon = bcd2bin(readb(base + OMAP_RTC_TIME_MON_REG));
++			tm.tm_year = bcd2bin(readb(base + OMAP_RTC_TIME_YEAR_REG));
++
++			if (59 == tm.tm_sec) {
++					mdelay(100);
++			}
++
++	} while (59 == tm.tm_sec);
++
++	tm.tm_sec++;
++
++	/* Write the Alarm 2 Register with the shutdown time */
++	writeb(bin2bcd(tm.tm_sec), base + OMAP_RTC_ALARM2_SEC_REG);
++	writeb(bin2bcd(tm.tm_min), base + OMAP_RTC_ALARM2_MIN_REG);
++	writeb(bin2bcd(tm.tm_hour), base + OMAP_RTC_ALARM2_HOUR_REG);
++	writeb(bin2bcd(tm.tm_mday), base + OMAP_RTC_ALARM2_DAY_REG);
++	writeb(bin2bcd(tm.tm_mon), base + OMAP_RTC_ALARM2_MON_REG);
++	writeb(bin2bcd(tm.tm_year), base + OMAP_RTC_ALARM2_YEAR_REG);
++
++	/* Enable the Alarm 2 Interrupt */
++	reg_val = readl(base +  OMAP_RTC_INTERRUPT_REG);
++	writel(reg_val | OMAP_RTC_INT_ALM2_EN, base + OMAP_RTC_INTERRUPT_REG);
++
++	iounmap(base);
++
++	/* Power is being pulled */
++	while(1);
++}
++
++static int hmi_rtc_init(void)
++{
++	void __iomem *base;
++	struct clk *clk;
++
++	clk = clk_get(NULL, "rtc_fck");
++	if (IS_ERR(clk)) {
++		pr_err("rtc : Failed to get RTC clock\n");
++		return -1;
++	}
++
++	if (clk_enable(clk)) {
++		pr_err("rtc: Clock Enable Failed\n");
++		return -1;
++	}
++
++	base = ioremap(AM33XX_RTC_BASE, SZ_4K);
++
++	if (WARN_ON(!base))
++		return -ENOMEM;
++
++	/* Unlock the rtc's registers */
++	writel(0x83e70b13, base + 0x6c);
++	writel(0x95a4f1e0, base + 0x70);
++
++	/*
++	 * Enable the 32K OSc
++	 * TODO: Need a better way to handle this
++	 * Since we want the clock to be running before mmc init
++	 * we need to do it before the rtc probe happens
++	 */
++	writel(0x48, base + 0x54);
++
++	iounmap(base);
++	
++	pm_power_off = hmi_rtc_poweroff;
++
++	return  platform_device_register(&am335x_rtc_device);
++}
++
++// ------------------- TPS65217 & TLV320AIC3204 ----------------------
++#define TLV320AIC3204_I2C_ID 0x18
++
++static struct aic32x4_pdata aic32x4_info = {
++	.power_cfg = AIC32X4_PWR_AVDD_DVDD_WEAK_DISABLE |
++				 AIC32X4_PWR_AIC32X4_LDO_ENABLE,
++	.swapdacs = 0,
++	.micpga_routing = AIC32X4_MICPGA_ROUTE_NEG_CM1_10K,
++};
++
++static struct i2c_board_info __initdata hmi_i2c_boardinfo[] = {
++	{
++		I2C_BOARD_INFO("tps65217", TPS65217_I2C_ID),
++		.platform_data  = &beaglebone_tps65217_info,
++	},
++	{
++		I2C_BOARD_INFO("tlv320aic32x4", TLV320AIC3204_I2C_ID),
++		.platform_data = &aic32x4_info,
++	},
++};
++
++static void __init hmi_i2c_init(void)
++{
++	omap_register_i2c_bus(1, 100, hmi_i2c_boardinfo,
++				ARRAY_SIZE(hmi_i2c_boardinfo));
++}
++
++// ------------------------------ USB --------------------------------
++static struct omap_musb_board_data hmi_musb_board_data = {
++	.interface_type	= MUSB_INTERFACE_ULPI,
++	/*
++	 * mode[0:3] = USB0PORT's mode
++	 * mode[4:7] = USB1PORT's mode
++	 * GISBC has USB0 and USB1 in host mode.
++	 */
++	.mode           = (MUSB_OTG << 4) | MUSB_HOST,
++	.power		= 500,
++	.instances	= 1,
++};
++
++// ------------------------------- GPIO -----------------------------
++static struct pinmux_config hmi_gpio_pin_mux[] = {
++	{"spi0_sclk.gpio0_2",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"spi0_d0.gpio0_3",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"spi0_d1.gpio0_4",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"spi0_cs0.gpio0_5",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"ecap0_in_pwm0_out.gpio0_7",	OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"xdma_event_intr0.gpio0_19",	OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"xdma_event_intr1.gpio0_20",	OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++/*	{"gpmc_wait0.gpio0_30",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN}, */
++	{"gpmc_wpn.gpio0_31",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++/*	{"gpmc_ad0.gpio1_0",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"gpmc_ad1.gpio1_1",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"gpmc_ad2.gpio1_2",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"gpmc_ad3.gpio1_3",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"gpmc_ad4.gpio1_4",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"gpmc_ad5.gpio1_5",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"gpmc_ad6.gpio1_6",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"gpmc_ad7.gpio1_7",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN}, */
++	{"gpmc_a0.gpio1_16",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"gpmc_a1.gpio1_17",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"gpmc_a2.gpio1_18",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"gpmc_a3.gpio1_19",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"gpmc_a4.gpio1_20",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"gpmc_a5.gpio1_21",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"gpmc_a6.gpio1_22",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"gpmc_a7.gpio1_23",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"gpmc_a8.gpio1_24",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"gpmc_a9.gpio1_25",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"gpmc_a10.gpio1_26",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"gpmc_a11.gpio1_27",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"gpmc_ben1.gpio1_28",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"gpmc_csn1.gpio1_30",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"gpmc_csn2.gpio1_31",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"gpmc_csn3.gpio2_0",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"gpmc_clk.gpio2_1",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++/*	{"gpmc_advn_ale.mmc1_sdcd",	OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"gpmc_oen_ren.gpio2_3",	OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"gpmc_wen.gpio2_4",		OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
++	{"gpmc_ben0_cle.gpio2_5",	OMAP_MUX_MODE7 | AM33XX_INPUT_EN}, */
++	{NULL, 0},
++};
++
++static void hmi_gpio_init(int evm_id, int profile )
++{
++	setup_pin_mux(hmi_gpio_pin_mux);
++}
++
++// -------------------------------- LED ------------------------------
++static struct pinmux_config hmi_leds_pin_mux[] = {
++	{"gpmc_ad8.gpio0_22",	OMAP_MUX_MODE7 | AM33XX_PIN_OUTPUT}, /* LED1 */
++	{"gpmc_ad9.gpio0_23",	OMAP_MUX_MODE7 | AM33XX_PIN_OUTPUT}, /* LED2 */
++	{"gpmc_ad10.gpio0_26",	OMAP_MUX_MODE7 | AM33XX_PIN_OUTPUT}, /* LED3 */
++	{NULL, 0},
++};
++
++#define HMI_LED1_GPIO	GPIO_TO_PIN(0, 22)
++#define HMI_LED2_GPIO	GPIO_TO_PIN(0, 23)
++#define HMI_LED3_GPIO	GPIO_TO_PIN(0, 26)
++
++static struct gpio_led hmi_gpio_leds[] = {
++	{
++		.name			= "hmi::led1",
++		.gpio			= HMI_LED1_GPIO,
++	},
++	{
++		.name			= "hmi::led2",
++		.gpio			= HMI_LED2_GPIO,
++	},
++	{
++		.name			= "hmi::led3",
++		.gpio			= HMI_LED3_GPIO,
++	},
++};
++
++static struct gpio_led_platform_data hmi_gpio_led_info = {
++	.leds		= hmi_gpio_leds,
++	.num_leds	= ARRAY_SIZE(hmi_gpio_leds),
++};
++
++static struct platform_device hmi_leds_gpio = {
++	.name	= "leds-gpio",
++	.id	= -1,
++	.dev	= {
++		.platform_data	= &hmi_gpio_led_info,
++	},
++};
++
++static void hmi_leds_init(int evm_id, int profile )
++{
++	int err;
++	setup_pin_mux(hmi_leds_pin_mux);
++	err = platform_device_register(&hmi_leds_gpio);
++	if (err)
++		pr_err("failed to register HMI LEDS\n");
++}
++
++// -------------------------- USB POWER ENABLE -----------------------
++static struct pinmux_config hmi_usb_power_en_pin_mux[] = {
++	{"mcasp0_fsr.gpio3_19",	OMAP_MUX_MODE7},
++	{NULL, 0},
++};
++
++#define HMI_USB_POWER_GPIO GPIO_TO_PIN(3, 19)
++
++static void hmi_usb_power_en_init(int evm_id, int profile)
++{
++	int ret;
++	setup_pin_mux(hmi_usb_power_en_pin_mux);
++
++	ret = gpio_request_one(HMI_USB_POWER_GPIO, GPIOF_OUT_INIT_LOW, "usb_power_en");
++	if (ret) {
++		pr_err("Error requesting USB power enable gpio: %d\n", ret);
++	}
++
++	/* USB power enable */
++	gpio_set_value(HMI_USB_POWER_GPIO, 1);
++	mdelay(20);
++	return;
++}
++
++// ----------------------------- LCD -------------------------------
++static struct pinmux_config hmi_lcdc_pin_mux[] = {
++	{"lcd_data0.lcd_data0",		OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT
++        | AM33XX_PULL_DISA},
++	{"lcd_data1.lcd_data1",		OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT
++        | AM33XX_PULL_DISA},
++	{"lcd_data2.lcd_data2",		OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT
++        | AM33XX_PULL_DISA},
++	{"lcd_data3.lcd_data3",		OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT
++        | AM33XX_PULL_DISA},
++	{"lcd_data4.lcd_data4",		OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT
++        | AM33XX_PULL_DISA},
++	{"lcd_data5.lcd_data5",		OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT
++        | AM33XX_PULL_DISA},
++	{"lcd_data6.lcd_data6",		OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT
++        | AM33XX_PULL_DISA},
++	{"lcd_data7.lcd_data7",		OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT
++        | AM33XX_PULL_DISA},
++	{"lcd_data8.lcd_data8",		OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT
++        | AM33XX_PULL_DISA},
++	{"lcd_data9.lcd_data9",		OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT
++        | AM33XX_PULL_DISA},
++	{"lcd_data10.lcd_data10",	OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT
++        | AM33XX_PULL_DISA},
++	{"lcd_data11.lcd_data11",	OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT
++        | AM33XX_PULL_DISA},
++	{"lcd_data12.lcd_data12",	OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT
++        | AM33XX_PULL_DISA},
++	{"lcd_data13.lcd_data13",	OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT
++        | AM33XX_PULL_DISA},
++	{"lcd_data14.lcd_data14",	OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT
++        | AM33XX_PULL_DISA},
++	{"lcd_data15.lcd_data15",	OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT
++        | AM33XX_PULL_DISA},
++	{"lcd_pclk.lcd_pclk",		OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT},
++	{"lcd_ac_bias_en.lcd_ac_bias_en", OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT},
++	/* LCD_B0 */
++	{"gpmc_ad14.gpio1_14",		OMAP_MUX_MODE7 | AM33XX_PIN_OUTPUT},
++	/* LCD_R0 */	
++	{"gpmc_ad15.gpio1_15",		OMAP_MUX_MODE7 | AM33XX_PIN_OUTPUT},
++	{NULL, 0},
++};
++
++static struct pinmux_config hmi_backlight_pin_mux[] = {
++	{"lcd_vsync.gpio2_22", OMAP_MUX_MODE7 | AM33XX_PIN_OUTPUT}, // LCD_DIS
++	{"mcasp0_aclkr.gpio3_18", OMAP_MUX_MODE7 | AM33XX_PIN_OUTPUT}, // BL_EN
++	{"mcasp0_ahclkr.ecap2_in_pwm2_out", OMAP_MUX_MODE4 | AM33XX_PIN_OUTPUT}, // BL_PWM
++	{NULL, 0},
++};
++
++/* LCD backlight platform Data */
++#define HMI_BACKLIGHT_MAX_BRIGHTNESS        100
++#define HMI_BACKLIGHT_DEFAULT_BRIGHTNESS    50
++#define HMI_PWM_PERIOD_NANO_SECONDS        (1000000 * 5)
++
++static struct platform_pwm_backlight_data hmi_panel_backlight_data = {
++	.pwm_id         = "ecap.2",
++	.ch             = -1,
++	.max_brightness = HMI_BACKLIGHT_MAX_BRIGHTNESS,
++	.dft_brightness = HMI_BACKLIGHT_DEFAULT_BRIGHTNESS,
++	.pwm_period_ns  = HMI_PWM_PERIOD_NANO_SECONDS,
++};
++
++static struct platform_device hmi_panel_backlight = {
++	.name           = "pwm-backlight",
++	.id             = -1,
++	.dev            = {
++	.platform_data  = &hmi_panel_backlight_data,
++	}
++};
++
++static struct pwmss_platform_data  hmi_pwm_pdata[3] = {
++	{
++		.version = PWM_VERSION_1,
++	},
++	{
++		.version = PWM_VERSION_1,
++	},
++	{
++		.version = PWM_VERSION_1,
++	},
++};
++
++static int __init hmi_ecap2_init(void)
++{
++	int status = 0;
++
++	am33xx_register_ecap(2, &hmi_pwm_pdata[2]);
++	platform_device_register(&hmi_panel_backlight);
++	return status;
++}
++
++static const struct display_panel hmi_panel = {
++	WVGA,
++	16,
++	16,
++	COLOR_ACTIVE,
++};
++
++static struct lcd_ctrl_config hmi_panel_cfg = {
++	&hmi_panel,
++	.ac_bias		= 255,
++	.ac_bias_intrpt		= 0,
++	.dma_burst_sz		= 16,
++	.bpp			= 16,
++	.fdd			= 0x80,
++	.tft_alt_mode		= 0,
++	.stn_565_mode		= 0,
++	.mono_8bit_mode		= 0,
++	.invert_line_clock	= 1,
++	.invert_frm_clock	= 1,
++	.sync_edge		= 0,
++	.sync_ctrl		= 1,
++	.raster_order		= 0,
++};
++
++struct da8xx_lcdc_platform_data hmi_panel_pdata = {
++	.manu_name		= "Winstar 7''",
++	.controller_data	= &hmi_panel_cfg,
++	.type			= "WF70ATIAGD0#000",
++};
++
++#define HMI_BACKLIGHT_EN_GPIO	GPIO_TO_PIN(3, 18)
++#define HMI_LCD_DIS_GPIO	GPIO_TO_PIN(2, 22)
++#define HMI_LCD_B0_GPIO		GPIO_TO_PIN(1, 14)
++#define HMI_LCD_R0_GPIO		GPIO_TO_PIN(1, 15)
++
++static void hmi_lcd_init(int evm_id, int profile)
++{
++	int ret;
++	setup_pin_mux(hmi_lcdc_pin_mux);
++	setup_pin_mux(hmi_backlight_pin_mux);
++
++	hmi_ecap2_init();
++
++	gpio_request_one(HMI_LCD_B0_GPIO, GPIOF_OUT_INIT_LOW, "lcd_b0");
++	gpio_request_one(HMI_LCD_R0_GPIO, GPIOF_OUT_INIT_LOW, "lcd_b0");
++	gpio_set_value(HMI_LCD_B0_GPIO, 0);
++	gpio_set_value(HMI_LCD_R0_GPIO, 0);
++
++	ret = gpio_request_one(HMI_LCD_DIS_GPIO, GPIOF_OUT_INIT_LOW, "lcd_disable");
++	if (ret) {
++		pr_err("Error requesting LCD disable gpio: %d\n", ret);
++	}
++	gpio_set_value(HMI_LCD_DIS_GPIO, 0);
++
++	ret = gpio_request_one(HMI_BACKLIGHT_EN_GPIO, GPIOF_OUT_INIT_LOW, "lcd_backlight_en");
++	if (ret) {
++		pr_err("Error requesting LCD backlight enable gpio: %d\n", ret);
++	}
++	gpio_set_value(HMI_BACKLIGHT_EN_GPIO, 1);
++
++	if (conf_disp_pll(300000000)) {
++		pr_info("Failed configure display PLL, not attempting to"
++				"register LCDC\n");
++		return;
++	}
++
++	if (am33xx_register_lcdc(&hmi_panel_pdata))
++		pr_info("Failed to register LCDC device\n");
++	return;
++}
++
++// -------------------------------- TSC ----------------------------
++static struct pinmux_config hmi_tsc_pin_mux[] = {
++	{"ain0.ain0",           OMAP_MUX_MODE0 | AM33XX_INPUT_EN},
++	{"ain1.ain1",           OMAP_MUX_MODE0 | AM33XX_INPUT_EN},
++	{"ain2.ain2",           OMAP_MUX_MODE0 | AM33XX_INPUT_EN},
++	{"ain3.ain3",           OMAP_MUX_MODE0 | AM33XX_INPUT_EN},
++	{"ain4.ain4",           OMAP_MUX_MODE0 | AM33XX_INPUT_EN},
++	{"ain5.ain5",           OMAP_MUX_MODE0 | AM33XX_INPUT_EN},
++	{"ain6.ain6",           OMAP_MUX_MODE0 | AM33XX_INPUT_EN},
++	{"ain7.ain7",           OMAP_MUX_MODE0 | AM33XX_INPUT_EN},
++	{"vrefp.vrefp",         OMAP_MUX_MODE0 | AM33XX_INPUT_EN},
++	{"vrefn.vrefn",         OMAP_MUX_MODE0 | AM33XX_INPUT_EN},
++	{NULL, 0},
++};
++
++static struct tsc_data hmi_touchscreen_data  = {
++	.wires  = 4,
++	.x_plate_resistance = 200,
++	.analog_input = 1,
++	.mode = TI_TSCADC_TSCMODE,
++};
++
++static void hmi_tsc_init(int evm_id, int profile)
++{
++	int err;
++	setup_pin_mux(hmi_tsc_pin_mux);
++	err = am33xx_register_tsc(&hmi_touchscreen_data);
++	if (err)
++		pr_err("failed to register touchscreen device\n");
++}
++
++// ----------------------------- HMI CONFIG ------------------------
++static struct evm_dev_cfg hmi_dev_cfg[] = {
++	{hmi_usb_power_en_init, DEV_ON_BASEBOARD, PROFILE_NONE},
++	{hmi_lcd_init,		DEV_ON_BASEBOARD, PROFILE_NONE},
++	{hmi_tsc_init,		DEV_ON_BASEBOARD, PROFILE_NONE},
++	{mii1_init,		DEV_ON_BASEBOARD, PROFILE_NONE},
++	{usb0_init,		DEV_ON_BASEBOARD, PROFILE_NONE},
++	{usb1_init,		DEV_ON_BASEBOARD, PROFILE_NONE},
++	{hmi_nand_init,		DEV_ON_BASEBOARD, PROFILE_NONE},
++	{hmi_mmc_init,		DEV_ON_BASEBOARD, PROFILE_NONE},
++	{hmi_leds_init,		DEV_ON_BASEBOARD, PROFILE_NONE},
++	{hmi_gpio_init,		DEV_ON_BASEBOARD, PROFILE_NONE},
++ 	{hmi_uart_init,		DEV_ON_BASEBOARD, PROFILE_NONE},
++	{NULL, 0, 0},
++};
++
++static void __init hmi_init(void)
++{
++	char macid0[ETH_ALEN]={0xD4, 0x94, 0xA1, 0x3A, 0x66, 0xD3},
++	     macid1[ETH_ALEN]={0xD4, 0x94, 0xA1, 0x3A, 0x66, 0xD4};
++		
++	am33xx_cpuidle_init();
++	am33xx_mux_init(board_mux);
++	
++	omap_serial_init();
++	hmi_rtc_init();
++	clkout2_enable();
++	
++	hmi_i2c_init();
++	
++	pr_info("The board is a AM335x GRINN HMI.\n");
++	_configure_device(LOW_COST_EVM, hmi_dev_cfg, PROFILE_NONE);
++
++	/* Fill up global evmid to initialize MII */
++	am33xx_evmid_fillup(BEAGLE_BONE_A3);
++
++	am33xx_cpsw_macidfillup(macid0, macid1);
++	am33xx_cpsw_init(0);
++	
++	hmi_mcasp0_init(0,0);
++	
++	omap_sdrc_init(NULL, NULL);
++	usb_musb_init(&hmi_musb_board_data);
++	
++	omap_board_config = am335x_evm_config;
++	omap_board_config_size = ARRAY_SIZE(am335x_evm_config);
++	/* Create an alias for icss clock */
++	if (clk_add_alias("pruss", NULL, "pruss_uart_gclk", NULL))
++		pr_warn("failed to create an alias: icss_uart_gclk --> pruss\n");
++	/* Create an alias for gfx/sgx clock */
++	if (clk_add_alias("sgx_ck", NULL, "gfx_fclk", NULL))
++		pr_warn("failed to create an alias: gfx_fclk --> sgx_ck\n");
++}
++
+ MACHINE_START(AM335XEVM, "am335xevm")
+-	/* Maintainer: Texas Instruments */
+ 	.atag_offset	= 0x100,
+ 	.map_io		= am335x_evm_map_io,
+ 	.init_early	= am33xx_init_early,
+ 	.init_irq	= ti81xx_init_irq,
+ 	.handle_irq     = omap3_intc_handle_irq,
+ 	.timer		= &omap3_am33xx_timer,
+-	.init_machine	= am335x_evm_init,
++	.init_machine	= hmi_init,
+ MACHINE_END
+ 
+-MACHINE_START(AM335XIAEVM, "am335xiaevm")
+-	/* Maintainer: Texas Instruments */
+-	.atag_offset	= 0x100,
+-	.map_io		= am335x_evm_map_io,
+-	.init_irq	= ti81xx_init_irq,
+-	.init_early	= am33xx_init_early,
+-	.timer		= &omap3_am33xx_timer,
+-	.init_machine	= am335x_evm_init,
+-MACHINE_END
+diff -rupN orig/arch/arm/mach-omap2/devices.c mod/arch/arm/mach-omap2/devices.c
+--- orig/arch/arm/mach-omap2/devices.c	2014-04-15 19:06:00.000000000 +0200
++++ mod/arch/arm/mach-omap2/devices.c	2014-01-29 05:30:08.000000000 +0100
+@@ -1336,6 +1336,7 @@ void am33xx_cpsw_macidfillup(char *eepro
+ #define MII_MODE_ENABLE		0x0
+ #define RMII_MODE_ENABLE	0x5
+ #define RGMII_MODE_ENABLE	0xA
++#define RMII_IO_CLK_EN		0xC0
+ #define MAC_MII_SEL		0x650
+ 
+ void am33xx_cpsw_init(unsigned int gigen)
+@@ -1373,19 +1374,19 @@ void am33xx_cpsw_init(unsigned int gigen
+ 			am33xx_cpsw_slaves[1].mac_addr[i] = am33xx_macid1[i];
+ 	}
+ 
+-	if (am33xx_evmid == BEAGLE_BONE_OLD) {
+-		__raw_writel(RMII_MODE_ENABLE,
+-				AM33XX_CTRL_REGADDR(MAC_MII_SEL));
+-	} else if (am33xx_evmid == BEAGLE_BONE_A3) {
++//	if (am33xx_evmid == BEAGLE_BONE_OLD) {
++//		__raw_writel(RMII_MODE_ENABLE | RMII_IO_CLK_EN,
++//				AM33XX_CTRL_REGADDR(MAC_MII_SEL));
++//	} else if (am33xx_evmid == BEAGLE_BONE_A3) {
+ 		__raw_writel(MII_MODE_ENABLE,
+ 				AM33XX_CTRL_REGADDR(MAC_MII_SEL));
+-	} else if (am33xx_evmid == IND_AUT_MTR_EVM) {
+-		am33xx_cpsw_slaves[0].phy_id = "0:1e";
+-		am33xx_cpsw_slaves[1].phy_id = "0:00";
+-	} else {
+-		__raw_writel(RGMII_MODE_ENABLE,
+-				AM33XX_CTRL_REGADDR(MAC_MII_SEL));
+-	}
++//	} else if (am33xx_evmid == IND_AUT_MTR_EVM) {
++//		am33xx_cpsw_slaves[0].phy_id = "0:1e";
++//		am33xx_cpsw_slaves[1].phy_id = "0:00";
++//	} else {
++//		__raw_writel(RGMII_MODE_ENABLE,
++//				AM33XX_CTRL_REGADDR(MAC_MII_SEL));
++//	}
+ 
+ 	am33xx_cpsw_pdata.gigabit_en = gigen;
+ 

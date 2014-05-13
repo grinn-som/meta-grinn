@@ -1,0 +1,509 @@
+diff -rupN orig/board/ti/am335x/board.c mod/board/ti/am335x/board.c
+--- orig/board/ti/am335x/board.c	2014-04-27 09:42:00.000000000 +0200
++++ mod/board/ti/am335x/board.c	2014-05-02 02:35:04.300245758 +0200
+@@ -236,6 +236,145 @@ void am33xx_spl_board_init(void)
+ 	struct am335x_baseboard_id header;
+ 	int mpu_vdd;
+ 
++#ifdef CONFIG_CHILISOM
++	/* Get the frequency */
++	dpll_mpu_opp100.m = am335x_get_efuse_mpu_max_freq(cdev);
++
++	/* ChiliSOM PMIC Code */
++	int usb_cur_lim;
++	if (i2c_probe(TPS65217_CHIP_PM))
++		return;
++
++	/*
++	 * We need to ensure we have AC power
++	 * before increasing the frequency.
++	 */
++	uchar pmic_status_reg;
++	if (tps65217_reg_read(TPS65217_STATUS, &pmic_status_reg))
++		return;
++	if (!(pmic_status_reg & TPS65217_PWR_SRC_AC_BITMASK)) {
++		puts("No AC power, disabling frequency switch\n");
++		return;
++	}
++
++	/*
++	 * Increase USB current limit to 1300mA
++	 * the MPU voltage controller as needed.
++	 */
++	usb_cur_lim = TPS65217_USB_INPUT_CUR_LIMIT_1300MA;
++	mpu_vdd = TPS65217_DCDC_VOLT_SEL_1275MV;
++	if (tps65217_reg_write(TPS65217_PROT_LEVEL_NONE,
++			       TPS65217_POWER_PATH,
++			       usb_cur_lim,
++			       TPS65217_USB_INPUT_CUR_LIMIT_MASK))
++		puts("tps65217_reg_write failure\n");
++
++	/* Set DCDC3 (CORE) voltage to 1.125V */
++	if (tps65217_voltage_update(TPS65217_DEFDCDC3,
++				    TPS65217_DCDC_VOLT_SEL_1125MV)) {
++		puts("tps65217_voltage_update failure\n");
++		return;
++	}
++
++	/* Set CORE Frequencies to OPP100 */
++	do_setup_dpll(&dpll_core_regs, &dpll_core_opp100);
++
++	/* Set DCDC2 (MPU) voltage */
++	if (tps65217_voltage_update(TPS65217_DEFDCDC2, mpu_vdd)) {
++		puts("tps65217_voltage_update failure\n");
++		return;
++	}
++
++	/* Set LDO3, LDO4 output voltage to 3.3V */
++	if (tps65217_reg_write(TPS65217_PROT_LEVEL_2,
++			       TPS65217_DEFLS1,
++			       TPS65217_LDO_VOLTAGE_OUT_3_3,
++			       TPS65217_LDO_MASK))
++		puts("tps65217_reg_write failure\n");
++	if (tps65217_reg_write(TPS65217_PROT_LEVEL_2,
++			       TPS65217_DEFLS2,
++			       TPS65217_LDO_VOLTAGE_OUT_3_3,
++			       TPS65217_LDO_MASK))
++		puts("tps65217_reg_write failure\n");
++#endif
++#ifdef CONFIG_CHILISOM_GCS2
++	/* Get the frequency */
++	dpll_mpu_opp100.m = am335x_get_efuse_mpu_max_freq(cdev);
++	int usb_cur_lim;
++
++	if (i2c_probe(TPS65217_CHIP_PM))
++		return;
++
++	/*
++	 * On we need to ensure we have AC power
++	 * before increasing the frequency.
++	 */
++	uchar pmic_status_reg;
++	if (tps65217_reg_read(TPS65217_STATUS, &pmic_status_reg))
++		return;
++	if (!(pmic_status_reg & TPS65217_PWR_SRC_AC_BITMASK)) {
++		puts("No AC power, disabling frequency switch\n");
++		return;
++	}
++
++	/*
++	 * Override what we have detected since we know if we have
++	 * a Beaglebone Black it supports 1GHz.
++	 */
++	/*
++	if (board_is_bone_lt(&header))
++		dpll_mpu_opp100.m = MPUPLL_M_1000;
++	*/
++	/*
++	 * Increase USB current limit to 1300mA or 1800mA and set
++	 * the MPU voltage controller as needed.
++	 */
++	if (dpll_mpu_opp100.m == MPUPLL_M_1000) {
++		usb_cur_lim = TPS65217_USB_INPUT_CUR_LIMIT_1800MA;
++		mpu_vdd = TPS65217_DCDC_VOLT_SEL_1325MV;
++	} else {
++		usb_cur_lim = TPS65217_USB_INPUT_CUR_LIMIT_1300MA;
++		mpu_vdd = TPS65217_DCDC_VOLT_SEL_1275MV;
++	}
++
++	if (tps65217_reg_write(TPS65217_PROT_LEVEL_NONE,
++			       TPS65217_POWER_PATH,
++			       usb_cur_lim,
++			       TPS65217_USB_INPUT_CUR_LIMIT_MASK))
++		puts("tps65217_reg_write failure\n");
++
++	/* Set DCDC3 (CORE) voltage to 1.125V */
++	if (tps65217_voltage_update(TPS65217_DEFDCDC3,
++				    TPS65217_DCDC_VOLT_SEL_1125MV)) {
++		puts("tps65217_voltage_update failure\n");
++		return;
++	}
++
++	/* Set CORE Frequencies to OPP100 */
++	do_setup_dpll(&dpll_core_regs, &dpll_core_opp100);
++
++	/* Set DCDC2 (MPU) voltage */
++	if (tps65217_voltage_update(TPS65217_DEFDCDC2, mpu_vdd)) {
++		puts("tps65217_voltage_update failure\n");
++		return;
++	}
++
++	/*
++	 * Set LDO3 to 1.8V and LDO4 to 3.3V for ChiliSOM GCS2
++	 */
++	if (tps65217_reg_write(TPS65217_PROT_LEVEL_2,
++			       TPS65217_DEFLS1,
++			       TPS65217_LDO_VOLTAGE_OUT_1_8,
++			       TPS65217_LDO_MASK))
++		puts("tps65217_reg_write failure\n");
++		
++	if (tps65217_reg_write(TPS65217_PROT_LEVEL_2,
++			       TPS65217_DEFLS2,
++			       TPS65217_LDO_VOLTAGE_OUT_3_3,
++			       TPS65217_LDO_MASK))
++		puts("tps65217_reg_write failure\n");
++#endif
++#if !(defined CONFIG_CHILISOM || defined CONFIG_CHILISOM_GCS2)
+ 	if (read_eeprom(&header) < 0)
+ 		puts("Could not get board ID.\n");
+ 
+@@ -370,13 +509,20 @@ void am33xx_spl_board_init(void)
+ 		/* Set CORE Frequencies to OPP100 */
+ 		do_setup_dpll(&dpll_core_regs, &dpll_core_opp100);
+ 	}
+-
++#endif
+ 	/* Set MPU Frequency to what we detected now that voltages are set */
+ 	do_setup_dpll(&dpll_mpu_regs, &dpll_mpu_opp100);
+ }
+ 
+ const struct dpll_params *get_dpll_ddr_params(void)
+ {
++#ifdef CONFIG_CHILISOM
++	return &dpll_ddr;
++#endif
++#ifdef CONFIG_CHILISOM_GCS2
++	return &dpll_ddr_bone_black;
++#endif
++#if !(defined CONFIG_CHILISOM || defined CONFIG_CHILISOM_GCS2)
+ 	struct am335x_baseboard_id header;
+ 
+ 	enable_i2c0_pin_mux();
+@@ -392,6 +538,7 @@ const struct dpll_params *get_dpll_ddr_p
+ 		return &dpll_ddr_evm_sk;
+ 	else
+ 		return &dpll_ddr;
++#endif
+ }
+ 
+ void set_uart_mux_conf(void)
+@@ -419,15 +566,26 @@ void set_uart_mux_conf(void)
+ void set_mux_conf_regs(void)
+ {
+ 	__maybe_unused struct am335x_baseboard_id header;
+-
++#if !(defined CONFIG_CHILISOM || defined CONFIG_CHILISOM_GCS2)
+ 	if (read_eeprom(&header) < 0)
+ 		puts("Could not get board ID.\n");
+-
++#endif
+ 	enable_board_pin_mux(&header);
+ }
+ 
+ void sdram_init(void)
+ {
++#ifdef CONFIG_CHILISOM
++	config_ddr(266, MT47H128M16RT25E_IOCTRL_VALUE, &ddr2_data,
++		   &ddr2_cmd_ctrl_data, &ddr2_emif_reg_data, 0);
++#endif
++#ifdef CONFIG_CHILISOM_GCS2
++	config_ddr(400, MT41K256M16HA125E_IOCTRL_VALUE,
++		   &ddr3_beagleblack_data,
++		   &ddr3_beagleblack_cmd_ctrl_data,
++		   &ddr3_beagleblack_emif_reg_data, 0);
++#endif
++#if !(defined CONFIG_CHILISOM || defined CONFIG_CHILISOM_GCS2)
+ 	__maybe_unused struct am335x_baseboard_id header;
+ 
+ 	if (read_eeprom(&header) < 0)
+@@ -456,6 +614,7 @@ void sdram_init(void)
+ 	else
+ 		config_ddr(266, MT47H128M16RT25E_IOCTRL_VALUE, &ddr2_data,
+ 			   &ddr2_cmd_ctrl_data, &ddr2_emif_reg_data, 0);
++#endif
+ }
+ #endif
+ 
+@@ -479,6 +638,33 @@ int board_init(void)
+ int board_late_init(void)
+ {
+ #ifdef CONFIG_ENV_VARS_UBOOT_RUNTIME_CONFIG
++#ifdef CONFIG_CHILISOM
++	char safe_string[HDR_NAME_LEN + 1];
++	struct am335x_baseboard_id header;
++
++	/* Now set variables based on the header. */
++	strncpy(safe_string, (char *)"CHILISOM", 8);
++	safe_string[8] = 0;
++	setenv("board_name", safe_string);
++
++	strncpy(safe_string, (char *)"1.1", 3);
++	safe_string[3] = 0;
++	setenv("board_rev", safe_string);
++#endif
++#ifdef CONFIG_CHILISOM_GCS2
++	char safe_string[HDR_NAME_LEN + 1];
++	struct am335x_baseboard_id header;
++
++	/* Now set variables based on the header. */
++	strncpy(safe_string, (char *)"CHILISOM", 8);
++	safe_string[8] = 0;
++	setenv("board_name", safe_string);
++
++	strncpy(safe_string, (char *)"2.2", 3);
++	safe_string[3] = 0;
++	setenv("board_rev", safe_string);
++#endif
++#if !(defined CONFIG_CHILISOM || defined CONFIG_CHILISOM_GCS2)
+ 	char safe_string[HDR_NAME_LEN + 1];
+ 	struct am335x_baseboard_id header;
+ 
+@@ -494,7 +680,7 @@ int board_late_init(void)
+ 	safe_string[sizeof(header.version)] = 0;
+ 	setenv("board_rev", safe_string);
+ #endif
+-
++#endif
+ 	return 0;
+ }
+ #endif
+@@ -545,6 +731,41 @@ static struct cpsw_platform_data cpsw_da
+ 	(defined(CONFIG_USB_ETHER) && defined(CONFIG_MUSB_GADGET))
+ int board_eth_init(bd_t *bis)
+ {
++#if (defined CONFIG_CHILISOM || defined CONFIG_CHILISOM_GCS2)
++	int rv, n = 0;
++	uint8_t mac_addr[6];
++	uint32_t mac_hi, mac_lo;
++	__maybe_unused struct am335x_baseboard_id header;
++
++	/* try reading mac address from efuse */
++	mac_lo = readl(&cdev->macid0l);
++	mac_hi = readl(&cdev->macid0h);
++	mac_addr[0] = mac_hi & 0xFF;
++	mac_addr[1] = (mac_hi & 0xFF00) >> 8;
++	mac_addr[2] = (mac_hi & 0xFF0000) >> 16;
++	mac_addr[3] = (mac_hi & 0xFF000000) >> 24;
++	mac_addr[4] = mac_lo & 0xFF;
++	mac_addr[5] = (mac_lo & 0xFF00) >> 8;
++
++#if (defined(CONFIG_DRIVER_TI_CPSW) && !defined(CONFIG_SPL_BUILD)) || \
++	(defined(CONFIG_SPL_ETH_SUPPORT) && defined(CONFIG_SPL_BUILD))
++	if (!getenv("ethaddr")) {
++		printf("<ethaddr> not set. Validating first E-fuse MAC\n");
++
++		if (is_valid_ether_addr(mac_addr))
++			eth_setenv_enetaddr("ethaddr", mac_addr);
++	}
++	writel(MII_MODE_ENABLE, &cdev->miisel);
++	cpsw_slaves[0].phy_if = cpsw_slaves[1].phy_if = PHY_INTERFACE_MODE_MII;
++
++	rv = cpsw_register(&cpsw_data);
++	if (rv < 0)
++		printf("Error %d registering CPSW switch\n", rv);
++	else
++		n += rv;
++#endif
++#endif
++#if !(defined CONFIG_CHILISOM || defined CONFIG_CHILISOM_GCS2)
+ 	int rv, n = 0;
+ 	uint8_t mac_addr[6];
+ 	uint32_t mac_hi, mac_lo;
+@@ -624,6 +845,7 @@ int board_eth_init(bd_t *bis)
+ 	else
+ 		n += rv;
+ #endif
++#endif
+ 	return n;
+ }
+ #endif
+diff -rupN orig/board/ti/am335x/mux.c mod/board/ti/am335x/mux.c
+--- orig/board/ti/am335x/mux.c	2014-04-27 09:42:00.000000000 +0200
++++ mod/board/ti/am335x/mux.c	2014-05-02 02:38:14.340245279 +0200
+@@ -330,6 +330,22 @@ static unsigned short detect_daughter_bo
+ 
+ void enable_board_pin_mux(struct am335x_baseboard_id *header)
+ {
++#if (defined CONFIG_CHILISOM || defined CONFIG_CHILISOM_GCS2)
++	/* ChiliSOM pinmux */
++	configure_module_pin_mux(i2c1_pin_mux);
++	configure_module_pin_mux(mii1_pin_mux);
++	configure_module_pin_mux(nand_pin_mux);
++	configure_module_pin_mux(mmc0_pin_mux);
++#endif
++
++#ifdef CONFIG_CHILISOM
++	puts("Configuration for Chilisom GCS1\n");
++#endif
++#ifdef CONFIG_CHILISOM_GCS2
++	puts("Configuration for Chilisom GCS2\n");
++#endif
++
++#if !(defined CONFIG_CHILISOM || defined CONFIG_CHILISOM_GCS2)
+ 	/* Do board-specific muxes. */
+ 	if (board_is_bone(header)) {
+ 		/* Beaglebone pinmux */
+@@ -386,4 +402,5 @@ void enable_board_pin_mux(struct am335x_
+ 		configure_module_pin_mux(mmc0_pin_mux);
+ 		configure_module_pin_mux(mmc1_pin_mux);
+ 	}
++#endif
+ }
+diff -rupN orig/boards.cfg mod/boards.cfg
+--- orig/boards.cfg	2014-04-27 09:42:00.000000000 +0200
++++ mod/boards.cfg	2014-05-06 21:33:44.952058294 +0200
+@@ -266,6 +266,8 @@ Active  arm         armv7          am33x
+ Active  arm         armv7          am33xx      ti              am335x              am335x_evm_uart4                     am335x_evm:SERIAL5,CONS_INDEX=5,NAND                                                                                              Tom Rini <trini@ti.com>
+ Active  arm         armv7          am33xx      ti              am335x              am335x_evm_uart5                     am335x_evm:SERIAL6,CONS_INDEX=6,NAND                                                                                              Tom Rini <trini@ti.com>
+ Active  arm         armv7          am33xx      ti              am335x              am335x_evm_usbspl                    am335x_evm:SERIAL1,CONS_INDEX=1,NAND,SPL_USBETH_SUPPORT                                                                           Tom Rini <trini@ti.com>
++Active  arm         armv7          am33xx      ti              am335x              chilisom                             am335x_evm:CHILISOM,SERIAL1,CONS_INDEX=1,NAND                                                                                     -
++Active  arm         armv7          am33xx      ti              am335x              chilisom_gcs2                        am335x_evm:CHILISOM_GCS2,SERIAL1,CONS_INDEX=1,NAND  
+ Active  arm         armv7          am33xx      ti              am43xx              am43xx_evm                           am43xx_evm:SERIAL1,CONS_INDEX=1                                                                                                   -
+ Active  arm         armv7          am33xx      ti              ti814x              ti814x_evm                           -                                                                                                                                 Matt Porter <matt.porter@linaro.org>
+ Active  arm         armv7          am33xx      ti              ti816x              ti816x_evm                           -                                                                                                                                 -
+diff -rupN orig/drivers/i2c/omap24xx_i2c.c mod/drivers/i2c/omap24xx_i2c.c
+--- orig/drivers/i2c/omap24xx_i2c.c	2014-04-27 09:42:00.000000000 +0200
++++ mod/drivers/i2c/omap24xx_i2c.c	2014-04-27 16:46:54.648096330 +0200
+@@ -526,6 +526,7 @@ static u16 wait_for_event(struct i2c_ada
+ 		    I2C_STAT_AL)) && timeout--);
+ 
+ 	if (timeout <= 0) {
++#if !(defined CONFIG_CHILISOM || defined CONFIG_CHILISOM_GCS2)
+ 		printf("Timed out in wait_for_event: status=%04x\n",
+ 		       status);
+ 		/*
+@@ -534,6 +535,7 @@ static u16 wait_for_event(struct i2c_ada
+ 		 */
+ 		printf("Check if pads/pull-ups of bus %d are properly configured\n",
+ 		       adap->hwadapnr);
++#endif
+ 		writew(0xFFFF, &i2c_base->stat);
+ 		status = 0;
+ 	}
+diff -rupN orig/include/configs/am335x_evm.h mod/include/configs/am335x_evm.h
+--- orig/include/configs/am335x_evm.h	2014-04-27 09:42:00.000000000 +0200
++++ mod/include/configs/am335x_evm.h	2014-05-06 00:19:01.826667054 +0200
+@@ -31,6 +31,7 @@
+ /* Always 128 KiB env size */
+ #define CONFIG_ENV_SIZE			(128 << 10)
+ 
++#if !(defined CONFIG_CHILISOM || defined CONFIG_CHILISOM_GCS2)
+ #ifdef CONFIG_NAND
+ #define NANDARGS \
+ 	"mtdids=" MTDIDS_DEFAULT "\0" \
+@@ -174,6 +175,111 @@
+ 	"setenv bootpart 1:2; " \
+ 	"run mmcboot;" \
+ 	"run nandboot;"
++#endif /* !CONFIG_CHILISOM */
++
++/*
++ * u-boot environment for ChiliSOM
++ */
++#if (defined CONFIG_CHILISOM || defined CONFIG_CHILISOM_GCS2)
++#ifdef CONFIG_NAND
++#define NANDARGS \
++	"mtdids=" MTDIDS_DEFAULT "\0" \
++	"mtdparts=" MTDPARTS_DEFAULT "\0" \
++	"dfu_alt_info_nand=" DFU_ALT_INFO_NAND "\0" \
++	"nand_img_siz=0x500000\0" \
++	"nand_src_addr=0x280000\0" \
++	"optargs=ubi.mtd=8,2048 mem=128M\0" \
++	"nand_root=ubi0:rootfs\0" \
++	"nand_root_fs_type=ubifs rootwait=1\0" \
++	"nand_args=run bootargs_defaults; " \
++		"setenv bootargs ${bootargs} root=${nand_root} " \
++		"noinitrd rootfstype=${nand_root_fs_type} " \
++		"ip=${ip_method}\0" \
++	"nand_boot=echo Booting from nand ...; " \
++		"run nand_args; " \
++		"nand read ${loadaddr} ${nand_src_addr} ${nand_img_siz}; " \
++		"bootm ${loadaddr}\0"
++#else
++#define NANDARGS ""
++#endif
++
++#define CONFIG_ENV_VARS_UBOOT_RUNTIME_CONFIG
++
++#ifndef CONFIG_SPL_BUILD
++#define CONFIG_EXTRA_ENV_SETTINGS \
++	"autoload=yes\0" \
++	"baudrate=115200\0" \
++	"bootargs_defaults=setenv bootargs console=${console} ${optargs}\0" \
++	"bootcmd=if mmc rescan; then echo SD/MMC found on device ${mmc_dev}; " \
++		"if run loadbootenv; then echo Loaded environment from ${bootenv}; " \
++		"run importbootenv;fi; " \
++		"if test -n $uenvcmd; then echo Running uenvcmd ...; run uenvcmd;fi; " \
++		"if run mmc_load_uimage; then run mmc_args;bootm 0x80007fc0;fi;fi; " \ 
++		"run nand_boot\0" \
++	"bootdelay=1\0" \
++	"bootenv=uEnv.txt\0" \
++	"bootfile=uImage\0" \
++	"console=ttyO0,115200n8\0" \
++	"ethact=cpsw\0" \
++	"ethaddr=bc:6a:29:52:4d:e3\0" \
++	"filesize=911F\0" \
++	"importbootenv=echo Importing environment from mmc ...; " \
++		"env import -t $loadaddr $filesize\0" \
++	"ip_method=none\0" \
++	"loadaddr=0x82000000\0" \
++	"loadbootenv=fatload mmc ${mmc_dev} ${loadaddr} ${bootenv}\0" \
++	"mmc_args=run bootargs_defaults;setenv bootargs ${bootargs} " \
++		"root=${mmc_root} rootfstype=${mmc_root_fs_type} ip=${ip_method}\0" \
++	"mmc_boot=run mmc_args; run mmc_load_uimage; bootm 0x80007fc0\0" \
++	"mmc_dev=0\0" \
++	"mmc_load_uimage=fatload mmc ${mmc_dev} 0x80007fc0 ${bootfile}\0" \
++	"mmc_load_uimage_ext2=ext2load ${mmc_dev} 0x80007fc0 /boot/${bootfile}\0" \
++	"mmc_root=/dev/mmcblk0p2 ro\0" \
++	"mmc_root_fs_type=ext4 rootwait\0" \
++	"net_args=run bootargs_defaults;setenv bootargs ${bootargs} " \
++		"root=/dev/nfs nfsroot=${serverip}:${rootpath},${nfsopts} " \
++		"rw ip=dhcp\0" \
++	"net_boot=echo Booting from network ...; setenv autoload no; dcache off; " \
++		"dhcp; tftp ${loadaddr} ${bootfile}; run net_args; bootm ${loadaddr}\0" \
++	"nfsopts=nolock\0" \
++	"nor_args=run bootargs_defaults;setenv bootargs ${bootargs} " \
++		"root={nor_root} rootfstype=${nor_root_fs_type} ip=${ip_method}\0" \
++	"nor_boot=echo Booting from NOR ...; run nor_args; " \
++		"cp.b ${0x08080000} ${loadaddr} ${nor_img_siz}; bootm ${loadaddr}\0" \
++	"nor_img_siz=0x280000\0" \
++	"nor_root=/dev/mtdblock3 rw\0" \
++	"nor_root_fs_type=jffs2\0" \
++	"nor_src_addr=0x08080000\0" \
++	"rootpath=/export/rootfs\0" \
++	"script_addr=0x81900000\0" \
++	"spi_args=run bootargs_defaults;setenv bootargs ${bootargs} " \
++		"root=${spi_root} rootfstype=${spi_root_fs_type} ip=${ip_method}\0" \
++	"spi_boot=echo Booting from spi ...; run spi_args; " \
++		"sf probe ${spi_bus_no}:0; " \
++		"sf read ${loadaddr} ${spi_src_addr} ${spi_img_siz}; " \
++		"bootm ${loadaddr}\0" \
++	"spi_bus_no=0\0" \
++	"spi_img_siz=0x280000\0" \
++	"spi_root=/dev/mtdblock4 rw\0" \
++	"spi_root_fs_type=jffs2\0" \
++	"spi_src_addr=0x62000\0" \
++	"static_ip=${ipaddr}:${serverip}:${gatewayip}:${netmask}:${hostname}::off\0" \
++	"stderr=serial\0" \
++	"stdin=serial\0" \
++	"stdout=serial\0" \
++	NANDARGS
++#endif
++
++#define CONFIG_BOOTCOMMAND \
++	"if mmc rescan; then echo SD/MMC found on device ${mmc_dev}; " \
++	"if run loadbootenv; then echo Loaded environment from ${bootenv}; " \
++	"run importbootenv;fi; " \
++	"if test -n $uenvcmd; then echo Running uenvcmd ...; run uenvcmd;fi; " \
++	"if run mmc_load_uimage; then run mmc_args;bootm 0x80007fc0;fi;fi; " \ 
++	"run nand_boot;"
++
++#endif /* CONFIG_CHILISOM || CONFIG_CHILISOM_GCS2 */
++
+ 
+ /* NS16550 Configuration */
+ #define CONFIG_SYS_NS16550_COM1		0x44e09000	/* Base EVM has UART0 */
+diff -rupN orig/include/configs/ti_armv7_common.h mod/include/configs/ti_armv7_common.h
+--- orig/include/configs/ti_armv7_common.h	2014-04-27 09:42:00.000000000 +0200
++++ mod/include/configs/ti_armv7_common.h	2014-05-05 23:32:02.138750315 +0200
+@@ -174,7 +174,10 @@
+ #ifndef CONFIG_NOR_BOOT
+ #define CONFIG_SPL
+ #define CONFIG_SPL_FRAMEWORK
++
++#if !(defined CONFIG_CHILISOM || defined CONFIG_CHILISOM_GCS2)
+ #define CONFIG_SPL_OS_BOOT
++#endif
+ 
+ /*
+  * Place the image at the start of the ROM defined image space.

@@ -1,0 +1,14 @@
+--- linux-orig/arch/arm/mach-omap2/Kconfig	2012-11-09 16:16:02.000000000 +0100
++++ linux/arch/arm/mach-omap2/Kconfig		2012-11-16 09:29:16.138740333 +0100
+@@ -337,6 +337,11 @@ config MACH_AM335XEVM
+ 	depends on SOC_OMAPAM33XX
+ 	default y
+ 
++config AM335XEVM_UART
++	bool "AM335X Evaluation Module set pinmux for all UARTs"
++	depends on MACH_AM335XEVM
++	default n
++
+ config MACH_AM335XIAEVM
+ 	bool "AM335X IA Evaluation Module"
+ 	depends on SOC_OMAPAM33XX

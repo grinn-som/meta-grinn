@@ -1,0 +1,38 @@
+diff -rupN orig/drivers/video/da8xx-fb.c mod/drivers/video/da8xx-fb.c
+--- orig/drivers/video/da8xx-fb.c	2014-04-15 19:06:00.000000000 +0200
++++ mod/drivers/video/da8xx-fb.c	2014-05-03 20:55:30.000000000 +0200
+@@ -315,6 +315,20 @@ static struct da8xx_panel known_lcd_pane
+ 		.pxl_clk = 9000000,
+ 		.invert_pxl_clk = 0,
+ 	},
++	/* Winstar WF70ATIAGD0#000 */
++	[6] = {
++		.name = "WF70ATIAGD0#000",
++		.width = 800,
++		.height = 480,
++		.hfp = 39,
++		.hbp = 39,
++		.hsw = 47,
++		.vfp = 13,
++		.vbp = 29,
++		.vsw = 2,
++		.pxl_clk = 33260000,
++		.invert_pxl_clk = 0,
++	},
+ };
+ 
+ /* Enable the Raster Engine of the LCD Controller */
+@@ -989,11 +1003,11 @@ static int fb_check_var(struct fb_var_sc
+ 		var->transp.length = 0;
+ 		break;
+ 	case 16:		/* RGB 565 */
+-		var->red.offset = 11;
++		var->red.offset = 0; /* orig 11 */
+ 		var->red.length = 5;
+ 		var->green.offset = 5;
+ 		var->green.length = 6;
+-		var->blue.offset = 0;
++		var->blue.offset = 11; /* orig 0 */
+ 		var->blue.length = 5;
+ 		var->transp.offset = 0;
+ 		var->transp.length = 0;

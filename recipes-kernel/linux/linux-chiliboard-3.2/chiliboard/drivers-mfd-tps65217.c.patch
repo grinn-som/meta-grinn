@@ -1,0 +1,103 @@
+--- linux-orig/drivers/mfd/tps65217.c	2012-11-09 16:16:05.000000000 +0100
++++ linux/drivers/mfd/tps65217.c	2012-11-16 09:29:39.546740987 +0100
+@@ -28,6 +28,9 @@
+ #include <linux/mfd/core.h>
+ #include <linux/mfd/tps65217.h>
+ 
++#include <linux/interrupt.h>
++#include <linux/syscalls.h>
++
+ /**
+  * tps65217_reg_read: Read a single tps65217 register.
+  *
+@@ -137,13 +140,47 @@ static struct regmap_config tps65217_reg
+ 	.val_bits = 8,
+ };
+ 
++static irqreturn_t nmi_handler(int irq, void *irq_data) {
++	int regint, ret;
++	struct tps65217 *tps = irq_data;
++	
++	printk(KERN_DEBUG "nmi_handler............\n");
++	
++	printk(KERN_DEBUG "read_func: %x\n", tps65217_reg_read);
++	printk(KERN_DEBUG "irq: %d\n", irq);
++	printk(KERN_DEBUG "irq_data: %x\n", irq_data);
++	
++	ret = tps65217_reg_read(tps, TPS65217_REG_INT, &regint);
++	if (ret < 0) {
++		printk(KERN_DEBUG "tps65217: Failed to read from INT register\n");
++		return IRQ_NONE;
++	}
++	
++	printk(KERN_DEBUG "tps65217: INT register: %d\n", regint);
++	printk(KERN_DEBUG "tps65217: INT PB_IN: %d\n", (regint & TPS65217_INT_PBI) >> 2);
++	
++	if (regint & TPS65217_INT_PBI) {
++		ret = tps65217_reg_read(tps, TPS65217_REG_STATUS, &regint);
++		if (!(regint & TPS65217_STATUS_PB)) {
++			const char * argv_init[] = { "/sbin/init", "0", NULL, };
++			const char * envp_init[] = { NULL, };
++			
++			printk(KERN_INFO "tps65217: PB_IN irq - requesting poweroff sequence\n");
++			
++			kernel_execve("/sbin/init", argv_init, envp_init);
++		}
++	}
++	
++	return IRQ_HANDLED;
++}
++
+ static int __devinit tps65217_probe(struct i2c_client *client,
+ 				const struct i2c_device_id *ids)
+ {
+ 	struct tps65217 *tps;
+ 	struct tps65217_board *pdata = client->dev.platform_data;
+ 	int i, ret;
+-	unsigned int version;
++	unsigned int version, regint;
+ 
+ 	tps = devm_kzalloc(&client->dev, sizeof(*tps), GFP_KERNEL);
+ 	if (!tps)
+@@ -171,6 +208,32 @@ static int __devinit tps65217_probe(stru
+ 	dev_info(tps->dev, "TPS65217 ID %#x version 1.%d\n",
+ 			(version & TPS65217_CHIPID_CHIP_MASK) >> 4,
+ 			version & TPS65217_CHIPID_REV_MASK);
++	
++	/* Odczytanie rejestru INT tps'a - wyczyszczenie przerwania */
++	ret = tps65217_reg_read(tps, TPS65217_REG_INT, &regint);
++	if (ret < 0) {
++		pr_err("tps65217: Failed to read from INT register\n");
++	}
++	else {
++		pr_info("tps65217: INT register: %d\n", regint);
++		pr_info("tps65217: INT PB_IN: %d\n", (regint & TPS65217_INT_PBI) >> 2);
++	}
++	
++	/* Ustawienie przerwania od NMI */
++#ifdef CONFIG_MACH_AM335XEVM
++	ret = request_threaded_irq(7, NULL, nmi_handler, IRQF_ONESHOT, "nmi_int", tps);
++	if (ret) {
++		pr_info("tps65217: request_irq failed\n");
++	}
++#endif
++	
++	/* Ustawienie PMIC, tak zeby mozna bylo wylaczyc urzadzenie przy zmianie PWR_EN */
++	ret = tps65217_set_bits(tps, TPS65217_REG_STATUS, TPS65217_STATUS_OFF,
++							TPS65217_STATUS_OFF, TPS65217_PROTECT_NONE);
++	if (ret) {
++		pr_err("failed to write tps65217 status reg");
++		return ;
++	}
+ 
+ 	for (i = 0; i < TPS65217_NUM_REGULATOR; i++) {
+ 		struct platform_device *pdev;
+@@ -188,6 +251,8 @@ static int __devinit tps65217_probe(stru
+ 
+ 		platform_device_add(pdev);
+ 	}
++	
++	regulator_has_full_constraints();
+ 
+ 	return 0;
+ 

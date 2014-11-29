@@ -1,0 +1,11 @@
+--- linux-orig/include/linux/mmzone.h	2012-11-09 16:18:48.000000000 +0100
++++ linux/include/linux/mmzone.h	2012-12-12 14:52:21.182607297 +0100
+@@ -21,7 +21,7 @@
+ 
+ /* Free memory management - zoned buddy allocator.  */
+ #ifndef CONFIG_FORCE_MAX_ZONEORDER
+-#define MAX_ORDER 11
++#define MAX_ORDER 12
+ #else
+ #define MAX_ORDER CONFIG_FORCE_MAX_ZONEORDER
+ #endif
